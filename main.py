@@ -417,7 +417,7 @@ async def generate_text(prompt):
 async def handle_options_request():
     """Handle OPTIONS request for CORS."""
     response = await make_response('', 204)
-    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundletest, https://pixl-ai-07c92c.webflow.io'
     response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, User-Address'
     return response
