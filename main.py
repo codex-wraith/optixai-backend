@@ -37,7 +37,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 9, 25)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 9, 30)
 UNLIMITED_IMAGES = -1 
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -491,7 +491,7 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
         if not user_initialized:
-            images_left = 5  # Initialize with 5 images only if not initialized
+            images_left = 20  # Initialize with 20 images only if not initialized
             tier_status = 'Free Trial'
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
@@ -564,7 +564,7 @@ async def reset_monthly_image_count():
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
                 free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
-                    free_trial_images = 5  # Or whatever your free trial limit is
+                    free_trial_images = 20  # Or whatever your free trial limit is
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
                     pipe.set(f"{user_prefix}tier", 'Free Trial')
                     logging.info(f"Reset image limit for active free trial user: {user_address}, images: {free_trial_images}")
