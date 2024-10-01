@@ -37,7 +37,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 9, 30)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 9, 25)
 UNLIMITED_IMAGES = -1 
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -176,6 +176,20 @@ async def user_session():
         availableUpgrades=available_upgrades
     )
 
+@app.route('/trial-status', methods=['GET', 'OPTIONS'])
+async def get_trial_status():
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    user_address = request.headers.get('User-Address')
+    free_trial_active, remaining_time = await is_free_trial_active(user_address)
+
+    # Return the free trial status as JSON
+    return jsonify({
+        'freeTrialActive': free_trial_active,
+        'trialTimeLeft': remaining_time
+    })
+
 @app.route('/generate', methods=['POST', 'OPTIONS'])
 async def generate_content():
     if request.method == 'OPTIONS':
@@ -303,7 +317,7 @@ async def generate_content():
         is_whitelisted_user = is_whitelisted(user_address)
         if not is_whitelisted_user:
            user_prefix = f"user_{user_address}_"
-           free_trial_active, _, _  = await is_free_trial_active(user_address)
+           free_trial_active, _ = await is_free_trial_active(user_address)
     
            # First, get the current image count without decrementing
            images_left, _ = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=False)
@@ -417,7 +431,7 @@ async def generate_text(prompt):
 async def handle_options_request():
     """Handle OPTIONS request for CORS."""
     response = await make_response('', 204)
-    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundletest, https://pixl-ai-07c92c.webflow.io'
+    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
     response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, User-Address'
     return response
