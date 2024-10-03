@@ -377,7 +377,7 @@ async def verify_tier_for_user(user_address):
 
     try:
         checksum_address = Web3.to_checksum_address(user_address)
-        percentage_held = verify_user_holdings(checksum_address)
+        percentage_held, _ = verify_user_holdings(checksum_address)  # Unpack the tuple
         
         for tier, plan in SUBSCRIPTION_PLANS.items():
             if percentage_held >= plan['percentage']:
@@ -505,14 +505,13 @@ async def is_free_trial_active(user_address=None):
 
 async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=False):
     app.logger.info(f"Initializing/getting data for user {user_address}. Free trial active: {free_trial_active}")
-
+    
     if is_whitelisted(user_address):
         app.logger.info(f"User {user_address} is whitelisted")
         return UNLIMITED_IMAGES, 'Unlimited'
-
+    
     user_initialized = await app.redis_client.get(f"{user_prefix}initialized")
-    images_left_str = await app.redis_client.get(f"{user_prefix}images_left") or '0'
-    images_left = int(images_left_str)
+    images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
     tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
     free_trial_override = await app.redis_client.get(f"{user_prefix}free_trial_override") or 'False'
 
@@ -520,21 +519,24 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
 
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
-        if user_initialized is None:
+        if not user_initialized:
             images_left = 20  # Initialize with 20 images only if not initialized
             tier_status = 'Free Trial'
-    elif user_initialized is None:
+    elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
         actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
         if meets_requirements:
             tier_status = actual_tier_status
-            images_left = SUBSCRIPTION_PLANS.get(tier_status, {}).get('images_per_month', 0)
+            if tier_status in SUBSCRIPTION_PLANS:
+                images_left = SUBSCRIPTION_PLANS[tier_status]['images_per_month']
+            else:
+                images_left = 0
         else:
             tier_status = 'None'
             images_left = 0
         app.logger.info(f"Non-free trial user {user_address} initialized with tier {tier_status} and {images_left} images")
 
-    if user_initialized is None:
+    if not user_initialized:
         await app.redis_client.set(f"{user_prefix}initialized", 'True')
         await app.redis_client.set(f"{user_prefix}tier", tier_status)
         await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
