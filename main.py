@@ -62,6 +62,36 @@ cors(app,
      expose_headers=['Content-Type', 'User-Address'],
      allow_credentials=True)
 
+@app.route('/tiers-info', methods=['GET', 'OPTIONS'])
+async def tiers_info():
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+    
+    try:
+        contract = get_token_contract()
+        total_supply = contract.functions.totalSupply().call()
+        token_decimals = contract.functions.decimals().call()
+        total_supply_adjusted = Decimal(total_supply) / Decimal(10 ** token_decimals)
+        
+        tiers_info = {}
+        for tier, plan in SUBSCRIPTION_PLANS.items():
+            percentage = plan['percentage']  # Already a Decimal
+            tokens_required = (percentage / Decimal(100)) * total_supply_adjusted
+            tiers_info[tier] = {
+                'percentage': float(percentage),  # Convert to float for JSON serialization
+                'tokensRequired': float(tokens_required),
+                'imagesPerMonth': plan['images_per_month']
+            }
+        
+        return jsonify({
+            'success': True,
+            'totalSupply': float(total_supply_adjusted),
+            'tiers': tiers_info
+        })
+    except Exception as e:
+        logging.error(f"Error fetching tiers info: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/check-whitelist', methods=['GET', 'OPTIONS'])
 async def check_whitelist():
     if request.method == 'OPTIONS':
@@ -408,13 +438,13 @@ def verify_user_holdings(checksum_address):
         
         if total_supply_adjusted == 0:
             logging.error("Total supply is zero, cannot calculate percentage")
-            return Decimal(0)
+            return Decimal(0), total_supply_adjusted
         
         percentage_held = (balance_adjusted / total_supply_adjusted) * 100
-        return percentage_held
+        return percentage_held, total_supply_adjusted
     except Exception as e:
         logging.error(f"Error in retrieving token holdings for {checksum_address}: {str(e)}")
-        return Decimal(0)
+        return Decimal(0), Decimal(0)
 
 def is_whitelisted(address):
     return address.lower() in (addr.lower() for addr in WHITELISTED_ADDRESSES)
