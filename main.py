@@ -315,7 +315,7 @@ async def generate_content():
 
         # Use Replicate Flux Pro API for all tiers
         output = replicate.run(
-            "black-forest-labs/flux-pro",
+            "black-forest-labs/flux-1.1-pro",
             input={
                 "steps": 25,
                 "prompt": final_prompt,
