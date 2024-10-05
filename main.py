@@ -1,4 +1,4 @@
-from quart import Quart, jsonify, request, make_response, current_app
+=from quart import Quart, jsonify, request, make_response, current_app
 from quart_cors import cors
 import tempfile
 import aiofiles
@@ -37,7 +37,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 9, 30)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 4)
 UNLIMITED_IMAGES = -1 
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
