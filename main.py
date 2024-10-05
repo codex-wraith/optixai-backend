@@ -1,4 +1,4 @@
-=from quart import Quart, jsonify, request, make_response, current_app
+from quart import Quart, jsonify, request, make_response, current_app
 from quart_cors import cors
 import tempfile
 import aiofiles
