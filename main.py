@@ -37,7 +37,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 4)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
 UNLIMITED_IMAGES = -1 
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -48,7 +48,7 @@ WHITELISTED_ADDRESSES = [
 ]
 SUBSCRIPTION_PLANS = {
     'Tier 1': {'percentage': Decimal('0.5'), 'images_per_month': 50},
-    'Tier 2': {'percentage': Decimal('1.0'), 'images_per_month': 100},
+    'Tier 2': {'percentage': Decimal('1.0'), 'images_per_month': 500},
     'Tier 3': {'percentage': Decimal('1.5'), 'images_per_month': 1000},
 }
 app = Quart(__name__)
@@ -161,7 +161,7 @@ async def user_session():
         app.redis_client = await create_redis_client()
 
     user_prefix = f"user_{user_address}_"
-    free_trial_active, remaining_time, trial_end_date  = await is_free_trial_active(user_address)
+    free_trial_active, remaining_time = await is_free_trial_active(user_address)
 
     if request.method == 'POST':
         images_left, tier_status = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address)
@@ -201,7 +201,6 @@ async def user_session():
         success=True,
         freeTrialActive=free_trial_active,
         trialTimeLeft=remaining_time,
-        trialEndDate=trial_end_date.isoformat() if trial_end_date else None,
         imagesLeft=images_left,
         tier=tier_status,
         availableUpgrades=available_upgrades
@@ -213,16 +212,12 @@ async def get_trial_status():
         return '', 204
 
     user_address = request.headers.get('User-Address')
-    if not user_address:
-        return jsonify({'error': 'User address not provided'}), 400
-
-    free_trial_active, remaining_time, trial_end_date = await is_free_trial_active(user_address)
+    free_trial_active, remaining_time = await is_free_trial_active(user_address)
 
     # Return the free trial status as JSON
     return jsonify({
         'freeTrialActive': free_trial_active,
-        'trialTimeLeft': remaining_time,
-        'trialEndDate': trial_end_date.isoformat() if trial_end_date else None
+        'trialTimeLeft': remaining_time
     })
 
 @app.route('/generate', methods=['POST', 'OPTIONS'])
@@ -351,7 +346,7 @@ async def generate_content():
         is_whitelisted_user = is_whitelisted(user_address)
         if not is_whitelisted_user:
            user_prefix = f"user_{user_address}_"
-           free_trial_active, _, _  = await is_free_trial_active(user_address)
+           free_trial_active, _ = await is_free_trial_active(user_address)
     
            # First, get the current image count without decrementing
            images_left, _ = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=False)
@@ -407,7 +402,7 @@ def get_web3_instance():
             if web3.is_connected():
                 return web3
         except Web3Exception as e:
-            print(f"Failed to connect to {provider.endpoint_uri}: {e}")
+            logging.error(f"Failed to connect to {provider.endpoint_uri}: {e}")
     
     raise ConnectionError("Failed to connect to any Ethereum provider")
 
@@ -496,7 +491,7 @@ async def is_free_trial_active(user_address=None):
 
     if user_address and is_active:
         free_trial_override = await app.redis_client.get(f"user_{user_address}_free_trial_override")
-        if free_trial_override == 'True':  # Note: Redis stores strings, so we compare with 'True'
+        if free_trial_override == 'True':
             is_active = False
             remaining_time = {
                 'days': 0,
@@ -504,9 +499,8 @@ async def is_free_trial_active(user_address=None):
                 'minutes': 0,
                 'seconds': 0
             }
-            trial_end_date = now  # Set trial_end_date to now if trial is overridden
 
-    return is_active, remaining_time, trial_end_date
+    return is_active, remaining_time
 
 
 async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=False):
@@ -597,7 +591,7 @@ async def reset_monthly_image_count():
                         logging.info(f"User {user_address} no longer meets tier requirements. Set images to 0.")
             else:
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
-                free_trial_active, _, _  = await is_free_trial_active(user_address)
+                free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
                     free_trial_images = 20  # Or whatever your free trial limit is
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
