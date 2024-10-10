@@ -62,6 +62,18 @@ cors(app,
      expose_headers=['Content-Type', 'User-Address'],
      allow_credentials=True)
 
+@app.route('/description', methods=['GET', 'OPTIONS'])
+async def get_description():
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+
+    description = (
+        "Getting started with Pixl AI is easy! Click 'Get Started' to create your account using just your email. "
+        "Enjoy a free trial with 20 images across all tiers. After the trial, choose a subscription that fits your needs. "
+        "Upgrade anytime to access more styles and features. Start creating amazing AI-generated art in minutes!"
+    )
+    return jsonify({'description': description})
+
 @app.route('/tiers-info', methods=['GET', 'OPTIONS'])
 async def tiers_info():
     if request.method == 'OPTIONS':
