@@ -44,7 +44,7 @@ WHITELISTED_ADDRESSES = [
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0xc6ca21DFfa38Fd88cd2bBd5D249CcD49F2346023",
-    "0x3fF749371f64526DCf706c10892663F374c61bD5"
+    "0x722b7C259fafFe4fb060745EE5a5FdE5EAA7F00E"
 ]
 SUBSCRIPTION_PLANS = {
     'Tier 1': {'percentage': Decimal('0.5'), 'images_per_month': 50},
@@ -69,7 +69,7 @@ async def get_description():
 
     description = (
         "Getting started with Pixl AI is easy! Click 'Get Started' to create your account using just your email. "
-        "Enjoy a free trial with 20 images across all tiers. After the trial, choose a subscription that fits your needs. "
+        "Enjoy a free trial with 30 images across all tiers. After the trial, choose a subscription that fits your needs. "
         "Upgrade anytime to access more styles and features. Start creating amazing AI-generated art in minutes!"
     )
     return jsonify({'description': description})
@@ -478,7 +478,7 @@ async def handle_options_request():
     return response
 
 async def is_free_trial_active(user_address=None):
-    trial_end_date = GLOBAL_TRIAL_START_DATE + timedelta(weeks=1)
+    trial_end_date = GLOBAL_TRIAL_START_DATE + timedelta(weeks=4)
     now = datetime.now()
     is_active = now < trial_end_date
     
@@ -532,7 +532,7 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
         if not user_initialized:
-            images_left = 20  # Initialize with 20 images only if not initialized
+            images_left = 30  # Initialize with 30 images only if not initialized
             tier_status = 'Free Trial'
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
@@ -605,7 +605,7 @@ async def reset_monthly_image_count():
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
                 free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
-                    free_trial_images = 20  # Or whatever your free trial limit is
+                    free_trial_images = 30  # Or whatever your free trial limit is
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
                     pipe.set(f"{user_prefix}tier", 'Free Trial')
                     logging.info(f"Reset image limit for active free trial user: {user_address}, images: {free_trial_images}")
