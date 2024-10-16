@@ -69,7 +69,7 @@ async def get_description():
 
     description = (
         "Getting started with Pixl AI is easy! Click 'Get Started' to create your account using just your email. "
-        "Enjoy a free trial with 30 images across all tiers. After the trial, choose a subscription that fits your needs. "
+        "Enjoy a free trial with 50 images across all tiers. After the trial, choose a subscription that fits your needs. "
         "Upgrade anytime to access more styles and features. Start creating amazing AI-generated art in minutes!"
     )
     return jsonify({'description': description})
@@ -532,7 +532,7 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
         if not user_initialized:
-            images_left = 30  # Initialize with 30 images only if not initialized
+            images_left = 50  # Initialize with 50 images only if not initialized
             tier_status = 'Free Trial'
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
@@ -605,7 +605,7 @@ async def reset_monthly_image_count():
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
                 free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
-                    free_trial_images = 30  # Or whatever your free trial limit is
+                    free_trial_images = 50  # Or whatever your free trial limit is
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
                     pipe.set(f"{user_prefix}tier", 'Free Trial')
                     logging.info(f"Reset image limit for active free trial user: {user_address}, images: {free_trial_images}")
