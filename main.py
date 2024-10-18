@@ -47,9 +47,9 @@ WHITELISTED_ADDRESSES = [
     "0x722b7C259fafFe4fb060745EE5a5FdE5EAA7F00E"
 ]
 SUBSCRIPTION_PLANS = {
-    'Tier 1': {'percentage': Decimal('0.15'), 'images_per_month': 50},
-    'Tier 2': {'percentage': Decimal('0.25'), 'images_per_month': 500},
-    'Tier 3': {'percentage': Decimal('0.5'), 'images_per_month': 1000},
+    'Tier 1': {'percentage': Decimal('0.1'), 'images_per_month': 50},
+    'Tier 2': {'percentage': Decimal('0.2'), 'images_per_month': 500},
+    'Tier 3': {'percentage': Decimal('0.3'), 'images_per_month': 1000},
 }
 app = Quart(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
