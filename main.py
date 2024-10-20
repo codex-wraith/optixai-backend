@@ -72,7 +72,7 @@ async def swap_price():
         return '', 204
 
     params = request.args.to_dict()
-    required_params = ['chainId', 'sellToken', 'buyToken', 'sellAmount', 'taker', 'slippageBps']
+    required_params = ['chainId', 'sellToken', 'buyToken', 'sellAmount', 'slippageBps']
     missing_params = [param for param in required_params if param not in params]
     if missing_params:
         return jsonify({'error': f'Missing parameters: {', '.join(missing_params)}'}), 400
