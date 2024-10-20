@@ -25,6 +25,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 INFURA_API_KEY = os.getenv('INFURA_API_KEY')
 if not INFURA_API_KEY:
     raise EnvironmentError("INFURA_API_KEY not set in environment variables")
+API_KEY = os.environ.get('REACT_APP_0X_API_KEY') 
+if not API_KEY:
+    raise EnvironmentError("REACT_APP_0X_API_KEY not set in environment variables")
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 STABILITY_API_KEY = os.getenv('STABILITY_API_KEY')
@@ -47,7 +50,7 @@ WHITELISTED_ADDRESSES = [
     "0x722b7C259fafFe4fb060745EE5a5FdE5EAA7F00E"
 ]
 SUBSCRIPTION_PLANS = {
-    'Pixl Art': {'percentage': Decimal('0.1'), 'images_per_month': 50},
+    'Pixl Art': {'percentage': Decimal('0.1'), 'images_per_month': 100},
     'Pixl Fusion': {'percentage': Decimal('0.2'), 'images_per_month': 500},
     'Pixl Realism': {'percentage': Decimal('0.3'), 'images_per_month': 1000},
 }
@@ -61,6 +64,56 @@ cors(app,
      allow_headers=['Content-Type', 'User-Address'],
      expose_headers=['Content-Type', 'User-Address'],
      allow_credentials=True)
+
+
+@app.route('/swap/price', methods=['GET', 'OPTIONS'])
+async def swap_price():
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    params = request.args.to_dict()
+    required_params = ['chainId', 'sellToken', 'buyToken', 'sellAmount', 'taker', 'slippageBps']
+    missing_params = [param for param in required_params if param not in params]
+    if missing_params:
+        return jsonify({'error': f'Missing parameters: {', '.join(missing_params)}'}), 400
+
+    headers = {
+        '0x-api-key': API_KEY,
+        '0x-version': 'v2',
+    }
+
+    try:
+        response = requests.get('https://api.0x.org/swap/permit2/price', params=params, headers=headers)
+        response.raise_for_status()
+        return jsonify(response.json())
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error fetching price from 0x API: {e}")
+        return jsonify({'error': 'Failed to fetch price from 0x API'}), 500
+
+@app.route('/swap/quote', methods=['GET', 'OPTIONS'])
+async def swap_quote():
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    params = request.args.to_dict()
+    required_params = ['chainId', 'sellToken', 'buyToken', 'sellAmount', 'taker', 'slippageBps']
+    missing_params = [param for param in required_params if param not in params]
+    if missing_params:
+        return jsonify({'error': f'Missing parameters: {', '.join(missing_params)}'}), 400
+
+    headers = {
+        '0x-api-key': API_KEY,
+        '0x-version': 'v2',
+    }
+
+    try:
+        response = requests.get('https://api.0x.org/swap/permit2/quote', params=params, headers=headers)
+        response.raise_for_status()
+        return jsonify(response.json())
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error fetching quote from 0x API: {e}")
+        return jsonify({'error': 'Failed to fetch quote from 0x API'}), 500
+
 
 @app.route('/description', methods=['GET', 'OPTIONS'])
 async def get_description():
