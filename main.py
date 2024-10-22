@@ -103,9 +103,8 @@ async def get_price():
                 return jsonify(data), resp.status
     except aiohttp.ClientResponseError as err:
         # Handle HTTP errors and return them to the frontend
-        print('Error fetching price from 0x API:', err)
-        error_text = await err.response.text()
-        return jsonify({'error': str(err), 'reason': error_text}), err.status
+        print(f'Error fetching price from 0x API: {err.status}, {err.message}')
+        return jsonify({'error': str(err), 'reason': err.message}), err.status
     except Exception as e:
         # Handle other exceptions
         print('Unexpected error:', e)
@@ -149,9 +148,8 @@ async def get_quote():
                 return jsonify(data), resp.status
     except aiohttp.ClientResponseError as err:
         # Handle HTTP errors and return them to the frontend
-        print('Error fetching quote from 0x API:', err)
-        error_text = await err.response.text()
-        return jsonify({'error': str(err), 'reason': error_text}), err.status
+        print(f'Error fetching quote from 0x API: {err.status}, {err.message}')
+        return jsonify({'error': str(err), 'reason': err.message}), err.status
     except Exception as e:
         # Handle other exceptions
         print('Unexpected error:', e)
