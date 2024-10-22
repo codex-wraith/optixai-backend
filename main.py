@@ -72,7 +72,16 @@ async def get_price():
     buy_token = request.args.get('buyToken')
     sell_amount = request.args.get('sellAmount')
     taker = request.args.get('taker')
-    slippage_bps = request.args.get('slippageBps', '200')  # Default to 2% slippage
+    slippage_bps = request.args.get('slippageBps', '200')
+
+    # Handle ETH as sellToken
+    if sell_token.upper() == 'ETH':
+        sell_token = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+
+    # Ensure addresses are checksummed
+    sell_token = Web3.to_checksum_address(sell_token)
+    buy_token = Web3.to_checksum_address(buy_token)
+    taker = Web3.to_checksum_address(taker)
 
     # Construct the 0x API URL
     base_url = "https://api.0x.org"
@@ -81,7 +90,7 @@ async def get_price():
 
     # Prepare the query parameters
     params = {
-        "chainId": chain_id,
+        "chainId": int(chain_id),
         "sellToken": sell_token,
         "buyToken": buy_token,
         "sellAmount": sell_amount,
@@ -95,14 +104,19 @@ async def get_price():
         "0x-version": "v2"
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params, headers=headers) as response:
-            if response.status == 200:
-                data = await response.json()
-                return jsonify(data)
-            else:
-                error_data = await response.json()
-                return jsonify(error_data), response.status
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return jsonify(data)
+                else:
+                    error_data = await response.json()
+                    app.logger.error(f"0x API Error: {error_data}")
+                    return jsonify(error_data), response.status
+    except Exception as e:
+        app.logger.error(f"Error in price request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/quote', methods=['GET'])
 async def get_quote():
