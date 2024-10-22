@@ -502,7 +502,7 @@ def get_web3_instance():
     raise ConnectionError("Failed to connect to any Ethereum provider")
 
 def get_token_contract():
-    token_address = "0x6982508145454ce325ddbe47a25d4ec3d2311933"
+    token_address = "0xaddb6dc7e2f7caea67621dd3ca2e8321ade33286"
     token_abi = [
         {"constant": True, "inputs": [{"name": "_owner", "type": "address"}],
          "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}],
