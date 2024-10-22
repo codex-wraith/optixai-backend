@@ -26,9 +26,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 INFURA_API_KEY = os.getenv('INFURA_API_KEY')
 if not INFURA_API_KEY:
     raise EnvironmentError("INFURA_API_KEY not set in environment variables")
+ZRX_API_KEY = os.getenv('ZRX_API_KEY')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-API_KEY = os.environ.get('ZERO_X_API_KEY')
 STABILITY_API_KEY = os.getenv('STABILITY_API_KEY')
 if not GOOGLE_API_KEY or not OPENAI_API_KEY:
     raise EnvironmentError("Missing API keys. Please set GOOGLE_API_KEY and OPENAI_API_KEY.")
@@ -64,98 +64,87 @@ cors(app,
      expose_headers=['Content-Type', 'User-Address'],
      allow_credentials=True)
 
-
-@app.route('/price', methods=['GET', 'OPTIONS'])
+@app.route('/price', methods=['GET'])
 async def get_price():
-    if request.method == 'OPTIONS':
-        return await handle_options_request()
-
-    # Extract parameters from the incoming request
+    # Extract parameters from the request
     chain_id = request.args.get('chainId')
     sell_token = request.args.get('sellToken')
     buy_token = request.args.get('buyToken')
     sell_amount = request.args.get('sellAmount')
     taker = request.args.get('taker')
-    slippage_bps = request.args.get('slippageBps')
+    slippage_bps = request.args.get('slippageBps', '200')  # Default to 2% slippage
 
-    # Prepare parameters and headers for the 0x API request
+    # Construct the 0x API URL
+    base_url = "https://api.0x.org"
+    endpoint = f"/swap/permit2/price"
+    url = f"{base_url}{endpoint}"
+
+    # Prepare the query parameters
     params = {
-        'chainId': chain_id,
-        'sellToken': sell_token,
-        'buyToken': buy_token,
-        'sellAmount': sell_amount,
-        'taker': taker,
-        'slippageBps': slippage_bps,
+        "chainId": chain_id,
+        "sellToken": sell_token,
+        "buyToken": buy_token,
+        "sellAmount": sell_amount,
+        "taker": taker,
+        "slippageBps": slippage_bps
     }
 
+    # Prepare headers
     headers = {
-        '0x-api-key': API_KEY,
-        '0x-version': 'v2',
+        "0x-api-key": ZRX_API_KEY,
+        "0x-version": "v2"
     }
 
-    try:
-        # Asynchronously make the request to the 0x API
-        async with aiohttp.ClientSession() as session:
-            async with session.get('https://api.0x.org/swap/permit2/price', params=params, headers=headers) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                # Return the JSON response to the frontend
-                return jsonify(data), resp.status
-    except aiohttp.ClientResponseError as err:
-        # Handle HTTP errors and return them to the frontend
-        print(f'Error fetching price from 0x API: {err.status}, {err.message}')
-        return jsonify({'error': str(err), 'reason': err.message}), err.status
-    except Exception as e:
-        # Handle other exceptions
-        print('Unexpected error:', e)
-        return jsonify({'error': 'Unexpected error occurred', 'reason': str(e)}), 500
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                return jsonify(data)
+            else:
+                error_data = await response.json()
+                return jsonify(error_data), response.status
 
-@app.route('/quote', methods=['GET', 'OPTIONS'])
+@app.route('/quote', methods=['GET'])
 async def get_quote():
-    if request.method == 'OPTIONS':
-        return await handle_options_request()
-
-    # Extract parameters from the incoming request
+    # Extract parameters from the request
     chain_id = request.args.get('chainId')
     sell_token = request.args.get('sellToken')
     buy_token = request.args.get('buyToken')
     sell_amount = request.args.get('sellAmount')
     taker = request.args.get('taker')
-    slippage_bps = request.args.get('slippageBps')
+    slippage_bps = request.args.get('slippageBps', '200')  # Default to 2% slippage
 
-    # Prepare parameters and headers for the 0x API request
+    # Construct the 0x API URL
+    base_url = "https://api.0x.org"
+    endpoint = f"/swap/permit2/quote"
+    url = f"{base_url}{endpoint}"
+
+    # Prepare the query parameters
     params = {
-        'chainId': chain_id,
-        'sellToken': sell_token,
-        'buyToken': buy_token,
-        'sellAmount': sell_amount,
-        'taker': taker,
-        'slippageBps': slippage_bps,
+        "chainId": chain_id,
+        "sellToken": sell_token,
+        "buyToken": buy_token,
+        "sellAmount": sell_amount,
+        "taker": taker,
+        "slippageBps": slippage_bps
     }
 
+    # Prepare headers
     headers = {
-        '0x-api-key': API_KEY,
-        '0x-version': 'v2',
+        "0x-api-key": ZRX_API_KEY,
+        "0x-version": "v2"
     }
 
-    try:
-        # Asynchronously make the request to the 0x API
-        async with aiohttp.ClientSession() as session:
-            async with session.get('https://api.0x.org/swap/permit2/quote', params=params, headers=headers) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                # Return the JSON response to the frontend
-                return jsonify(data), resp.status
-    except aiohttp.ClientResponseError as err:
-        # Handle HTTP errors and return them to the frontend
-        print(f'Error fetching quote from 0x API: {err.status}, {err.message}')
-        return jsonify({'error': str(err), 'reason': err.message}), err.status
-    except Exception as e:
-        # Handle other exceptions
-        print('Unexpected error:', e)
-        return jsonify({'error': 'Unexpected error occurred', 'reason': str(e)}), 500
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                return jsonify(data)
+            else:
+                error_data = await response.json()
+                return jsonify(error_data), response.status
 
-    
+
 @app.route('/description', methods=['GET', 'OPTIONS'])
 async def get_description():
     if request.method == 'OPTIONS':
