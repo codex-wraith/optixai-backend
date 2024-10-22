@@ -65,8 +65,11 @@ cors(app,
      allow_credentials=True)
 
 
-@app.route('/price', methods=['GET'])
+@app.route('/price', methods=['GET', 'OPTIONS'])
 async def get_price():
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+
     # Extract parameters from the incoming request
     chain_id = request.args.get('chainId')
     sell_token = request.args.get('sellToken')
@@ -108,8 +111,11 @@ async def get_price():
         print('Unexpected error:', e)
         return jsonify({'error': 'Unexpected error occurred', 'reason': str(e)}), 500
 
-@app.route('/quote', methods=['GET'])
+@app.route('/quote', methods=['GET', 'OPTIONS'])
 async def get_quote():
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+
     # Extract parameters from the incoming request
     chain_id = request.args.get('chainId')
     sell_token = request.args.get('sellToken')
@@ -150,6 +156,7 @@ async def get_quote():
         # Handle other exceptions
         print('Unexpected error:', e)
         return jsonify({'error': 'Unexpected error occurred', 'reason': str(e)}), 500
+
     
 @app.route('/description', methods=['GET', 'OPTIONS'])
 async def get_description():
