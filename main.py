@@ -1,5 +1,6 @@
 from quart import Quart, jsonify, request, make_response, current_app
 from quart_cors import cors
+import aiohttp
 import tempfile
 import aiofiles
 import base64
@@ -25,11 +26,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 INFURA_API_KEY = os.getenv('INFURA_API_KEY')
 if not INFURA_API_KEY:
     raise EnvironmentError("INFURA_API_KEY not set in environment variables")
-API_KEY = os.environ.get('REACT_APP_0X_API_KEY') 
-if not API_KEY:
-    raise EnvironmentError("REACT_APP_0X_API_KEY not set in environment variables")
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+API_KEY = os.environ.get('ZERO_X_API_KEY')
 STABILITY_API_KEY = os.getenv('STABILITY_API_KEY')
 if not GOOGLE_API_KEY or not OPENAI_API_KEY:
     raise EnvironmentError("Missing API keys. Please set GOOGLE_API_KEY and OPENAI_API_KEY.")
@@ -66,16 +65,25 @@ cors(app,
      allow_credentials=True)
 
 
-@app.route('/swap/price', methods=['GET', 'OPTIONS'])
-async def swap_price():
-    if request.method == 'OPTIONS':
-        return '', 204
+@app.route('/price', methods=['GET'])
+async def get_price():
+    # Extract parameters from the incoming request
+    chain_id = request.args.get('chainId')
+    sell_token = request.args.get('sellToken')
+    buy_token = request.args.get('buyToken')
+    sell_amount = request.args.get('sellAmount')
+    taker = request.args.get('taker')
+    slippage_bps = request.args.get('slippageBps')
 
-    params = request.args.to_dict()
-    required_params = ['chainId', 'sellToken', 'buyToken', 'sellAmount', 'slippageBps']
-    missing_params = [param for param in required_params if param not in params]
-    if missing_params:
-        return jsonify({'error': f'Missing parameters: {', '.join(missing_params)}'}), 400
+    # Prepare parameters and headers for the 0x API request
+    params = {
+        'chainId': chain_id,
+        'sellToken': sell_token,
+        'buyToken': buy_token,
+        'sellAmount': sell_amount,
+        'taker': taker,
+        'slippageBps': slippage_bps,
+    }
 
     headers = {
         '0x-api-key': API_KEY,
@@ -83,23 +91,42 @@ async def swap_price():
     }
 
     try:
-        response = requests.get('https://api.0x.org/swap/permit2/price', params=params, headers=headers)
-        response.raise_for_status()
-        return jsonify(response.json())
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error fetching price from 0x API: {e}")
-        return jsonify({'error': 'Failed to fetch price from 0x API'}), 500
+        # Asynchronously make the request to the 0x API
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://api.0x.org/swap/permit2/price', params=params, headers=headers) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                # Return the JSON response to the frontend
+                return jsonify(data), resp.status
+    except aiohttp.ClientResponseError as err:
+        # Handle HTTP errors and return them to the frontend
+        print('Error fetching price from 0x API:', err)
+        error_text = await err.response.text()
+        return jsonify({'error': str(err), 'reason': error_text}), err.status
+    except Exception as e:
+        # Handle other exceptions
+        print('Unexpected error:', e)
+        return jsonify({'error': 'Unexpected error occurred', 'reason': str(e)}), 500
 
-@app.route('/swap/quote', methods=['GET', 'OPTIONS'])
-async def swap_quote():
-    if request.method == 'OPTIONS':
-        return '', 204
+@app.route('/quote', methods=['GET'])
+async def get_quote():
+    # Extract parameters from the incoming request
+    chain_id = request.args.get('chainId')
+    sell_token = request.args.get('sellToken')
+    buy_token = request.args.get('buyToken')
+    sell_amount = request.args.get('sellAmount')
+    taker = request.args.get('taker')
+    slippage_bps = request.args.get('slippageBps')
 
-    params = request.args.to_dict()
-    required_params = ['chainId', 'sellToken', 'buyToken', 'sellAmount', 'taker', 'slippageBps']
-    missing_params = [param for param in required_params if param not in params]
-    if missing_params:
-        return jsonify({'error': f'Missing parameters: {', '.join(missing_params)}'}), 400
+    # Prepare parameters and headers for the 0x API request
+    params = {
+        'chainId': chain_id,
+        'sellToken': sell_token,
+        'buyToken': buy_token,
+        'sellAmount': sell_amount,
+        'taker': taker,
+        'slippageBps': slippage_bps,
+    }
 
     headers = {
         '0x-api-key': API_KEY,
@@ -107,14 +134,23 @@ async def swap_quote():
     }
 
     try:
-        response = requests.get('https://api.0x.org/swap/permit2/quote', params=params, headers=headers)
-        response.raise_for_status()
-        return jsonify(response.json())
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error fetching quote from 0x API: {e}")
-        return jsonify({'error': 'Failed to fetch quote from 0x API'}), 500
-
-
+        # Asynchronously make the request to the 0x API
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://api.0x.org/swap/permit2/quote', params=params, headers=headers) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                # Return the JSON response to the frontend
+                return jsonify(data), resp.status
+    except aiohttp.ClientResponseError as err:
+        # Handle HTTP errors and return them to the frontend
+        print('Error fetching quote from 0x API:', err)
+        error_text = await err.response.text()
+        return jsonify({'error': str(err), 'reason': error_text}), err.status
+    except Exception as e:
+        # Handle other exceptions
+        print('Unexpected error:', e)
+        return jsonify({'error': 'Unexpected error occurred', 'reason': str(e)}), 500
+    
 @app.route('/description', methods=['GET', 'OPTIONS'])
 async def get_description():
     if request.method == 'OPTIONS':
