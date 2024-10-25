@@ -718,9 +718,9 @@ scheduler.add_job(reset_monthly_image_count, CronTrigger(day=1, hour=0, minute=0
 
 async def create_redis_client():
     return Redis(
-        host='redis-16532.c258.us-east-1-4.ec2.redns.redis-cloud.com',  
-        port=16532,         
-        password='KbhEGTeiyQc1WQdGdCztNTMH2sViO3Ec',              
+        host='redis-11850.c270.us-east-1-3.ec2.redns.redis-cloud.com',  
+        port=11850,         
+        password='ycwsjYErV556fuZ1aPGDog4lzBsAa5tp',              
         decode_responses=True  
     )
 
