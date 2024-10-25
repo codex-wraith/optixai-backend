@@ -46,7 +46,7 @@ WHITELISTED_ADDRESSES = [
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0xc6ca21DFfa38Fd88cd2bBd5D249CcD49F2346023",
-    "0x722b7C259fafFe4fb060745EE5a5FdE5EAA7F00E"
+    "0x3fF749371f64526DCf706c10892663F374c61bD5"
 ]
 SUBSCRIPTION_PLANS = {
     'Pixl Art': {'percentage': Decimal('0.1'), 'images_per_month': 100},
@@ -58,7 +58,7 @@ app.secret_key = os.environ.get('SECRET_KEY')
 app.config['SESSION_TYPE'] = 'redis'
 app.config['SESSION_REDIS'] = Redis.from_url(os.environ.get('REDISCLOUD_URL'))
 cors(app,
-     allow_origin=['https://www.pixl-ai.io', 'https://pixl-ai.io', 'https://pixl-ai-io.github.io/bundletest', 'https://pixl-ai-07c92c.webflow.io'],
+     allow_origin=['https://www.pixl-ai.io', 'https://pixl-ai.io', 'https://pixl-ai-io.github.io/bundles', 'https://pixl-ai-07c92c.webflow.io'],
      allow_methods=['GET', 'POST', 'OPTIONS'],
      allow_headers=['Content-Type', 'User-Address'],
      expose_headers=['Content-Type', 'User-Address'],
@@ -151,9 +151,8 @@ async def get_description():
         return await handle_options_request()
 
     description = (
-        "Getting started with Pixl AI is easy! Click 'Get Started' to create your account using just your email. "
-        "Enjoy a free trial with 50 images across all tiers. After the trial, choose a subscription that fits your needs. "
-        "Upgrade anytime to access more styles and features. Start creating amazing AI-generated art in minutes!"
+        "Getting started with Pixl AI is simple! Click 'Get Started' and connect your wallet using your email or providers like MetaMask. "
+        "Once connected, you'll instantly unlock your free trial with 50 images across all tiers - giving you complete access to every style and feature."
     )
     return jsonify({'description': description})
 
@@ -555,13 +554,13 @@ async def generate_text(prompt):
 async def handle_options_request():
     """Handle OPTIONS request for CORS."""
     response = await make_response('', 204)
-    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundletest, https://pixl-ai-07c92c.webflow.io'
+    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
     response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, User-Address'
     return response
 
 async def is_free_trial_active(user_address=None):
-    trial_end_date = GLOBAL_TRIAL_START_DATE + timedelta(weeks=4)
+    trial_end_date = GLOBAL_TRIAL_START_DATE + timedelta(weeks=6)
     now = datetime.now()
     is_active = now < trial_end_date
     
@@ -719,9 +718,9 @@ scheduler.add_job(reset_monthly_image_count, CronTrigger(day=1, hour=0, minute=0
 
 async def create_redis_client():
     return Redis(
-        host='redis-11850.c270.us-east-1-3.ec2.redns.redis-cloud.com',  
-        port=11850,         
-        password='ycwsjYErV556fuZ1aPGDog4lzBsAa5tp',              
+        host='redis-16532.c258.us-east-1-4.ec2.redns.redis-cloud.com',  
+        port=16532,         
+        password='KbhEGTeiyQc1WQdGdCztNTMH2sViO3Ec',              
         decode_responses=True  
     )
 
