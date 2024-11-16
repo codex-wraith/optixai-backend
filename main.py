@@ -357,11 +357,11 @@ async def generate_content():
             - Cartoon-style elements
             - Key compositional elements (foreground, background)
             - Mood or atmosphere
-            Do not include:
+            Avoid:
             - Technical instructions (e.g., resolution numbers, color codes)
             - Mentions of UI elements, borders, or non-artistic components
             - Realistic or photographic elements
-            Format the output as a single, descriptive sentence without bullet points or separate instructions.""",
+            Format the output into a single, cohesive description that reads like a professional art direction, avoiding any technical formatting or bullet points.""",
 
             'Tier 2': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
             Create a single, detailed prompt that:
