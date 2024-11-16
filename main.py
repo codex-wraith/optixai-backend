@@ -352,16 +352,16 @@ async def generate_content():
 
         prompts = {
             'Tier 1': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
-            Output a single, cohesive prompt that incorporates these elements:
-            - Pixel art aesthetics (e.g., low resolution, limited color palette)
-            - Cartoon-style elements
+            Create a single, detailed prompt that:
+            - Emphasizes classic pixel art aesthetics and charm
+            - Incorporates playful cartoon-style elements
             - Key compositional elements (foreground, background)
-            - Mood or atmosphere
+            - Suggests color palette and mood
             Avoid:
             - Technical instructions (e.g., resolution numbers, color codes)
             - Mentions of UI elements, borders, or non-artistic components
             - Realistic or photographic elements
-            Format the output into a single, cohesive description that reads like a professional art direction, avoiding any technical formatting or bullet points.""",
+            Present the output as one comprehensive, descriptive sentence that naturally blends pixel art and cartoon elements.""",
 
             'Tier 2': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
             Create a single, detailed prompt that:
