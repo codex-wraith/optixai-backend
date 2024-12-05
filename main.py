@@ -39,7 +39,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 9, 6)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
 UNLIMITED_IMAGES = -1 
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -52,6 +52,7 @@ SUBSCRIPTION_PLANS = {
     'Pixl Art': {'percentage': Decimal('0.1'), 'images_per_month': 100},
     'Pixl Fusion': {'percentage': Decimal('0.2'), 'images_per_month': 500},
     'Pixl Realism': {'percentage': Decimal('0.3'), 'images_per_month': 1000},
+    'Pixl Ultra': {'percentage': Decimal('0.3'), 'images_per_month': 1000}  # Same requirements as Tier 3
 }
 app = Quart(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
@@ -169,12 +170,13 @@ async def tiers_info():
         
         tiers_info = {}
         for tier, plan in SUBSCRIPTION_PLANS.items():
-            percentage = plan['percentage']  # Already a Decimal
+            percentage = plan['percentage']
             tokens_required = (percentage / Decimal(100)) * total_supply_adjusted
             tiers_info[tier] = {
-                'percentage': float(percentage),  # Convert to float for JSON serialization
+                'percentage': float(percentage),
                 'tokensRequired': float(tokens_required),
-                'imagesPerMonth': plan['images_per_month']
+                'imagesPerMonth': plan['images_per_month'],
+                'isUltraTier': tier == 'Pixl Ultra'  # Add flag for Ultra tier
             }
         
         return jsonify({
@@ -185,6 +187,7 @@ async def tiers_info():
     except Exception as e:
         logging.error(f"Error fetching tiers info: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/check-whitelist', methods=['GET', 'OPTIONS'])
 async def check_whitelist():
@@ -283,13 +286,16 @@ async def user_session():
         if free_trial_active and tier_status == 'None':
             tier_status = 'Free Trial'
 
-    # Determine available upgrades
-    all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']
+     # Update available upgrades logic
+    all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
     else:
         current_tiers = tier_status.split(', ')
         available_upgrades = [tier for tier in all_tiers if tier not in current_tiers]
+
+    # Add Ultra access flag
+    has_ultra_access = tier_status == 'Tier 3' or is_whitelisted(user_address)
 
     return jsonify(
         success=True,
@@ -297,7 +303,8 @@ async def user_session():
         trialTimeLeft=remaining_time,
         imagesLeft=images_left,
         tier=tier_status,
-        availableUpgrades=available_upgrades
+        availableUpgrades=available_upgrades,
+        hasUltraAccess=has_ultra_access  # New field
     )
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
@@ -321,6 +328,8 @@ async def generate_content():
 
     try:
         data = await request.get_json()
+        user_address = data.get('userAddress')
+        
         # Extract aspect ratio, default to '1:1' if not provided
         aspect_ratio = data.get('aspectRatio', '1:1')
 
@@ -335,8 +344,22 @@ async def generate_content():
         }
         selected_aspect_ratio = aspect_ratio_mapping.get(aspect_ratio, '1:1')
     
+        # Verify Ultra access if attempting to use tier4
+        if data.get('tier4Prompt'):
+            tier_status = await get_user_tier_status(user_address)
+            has_ultra_access = tier_status == 'Tier 3' or is_whitelisted(user_address)
+            if not has_ultra_access:
+                return jsonify({'error': 'Unauthorized access to Ultra tier'}), 403
+
+        # Determine which tier and prompt to use
         prompt_used = None
-        if data.get('tier3Prompt'):
+        model_version = "black-forest-labs/flux-1.1-pro"
+
+        if data.get('tier4Prompt') and (await get_user_tier_status(user_address) == 'Tier 3' or is_whitelisted(user_address)):
+            prompt_used = data['tier4Prompt']
+            tier_used = 'Tier 4'
+            model_version = "black-forest-labs/flux-1.1-pro-ultra"
+        elif data.get('tier3Prompt'):
             prompt_used = data['tier3Prompt']
             tier_used = 'Tier 3'
         elif data.get('tier2Prompt'):
@@ -384,7 +407,20 @@ async def generate_content():
             Ensure to:
             - Keep the original intent and key elements of the prompt
             - Avoid mentioning non-photorealistic or obvious digital effects
-            Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances."""
+            Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances.""",
+
+            'Tier 4': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
+            Craft a single, detailed prompt that includes:
+            - Photorealistic lighting and atmospheric conditions
+            - Intricate textures and surface details
+            - Complex compositional elements
+            - Advanced depth and perspective
+            - Sophisticated color grading
+            Ensure to:
+            - Maintain hyperrealistic quality
+            - Include cinematic elements
+            - Preserve artistic nuances
+            Output a single, comprehensive sentence that guides the AI to create an ultra-detailed, masterfully composed image."""
         }
 
         refined_prompt = prompts[tier_used]
@@ -407,18 +443,32 @@ async def generate_content():
         final_prompt = post_process_prompt(response.text)
         logging.info(f"Final prompt: {final_prompt}")
 
-        # Use Replicate Flux Pro API for all tiers
-        output = replicate.run(
-            "black-forest-labs/flux-1.1-pro",
-            input={
+        # Use appropriate model based on tier
+        if model_version == "black-forest-labs/flux-1.1-pro-ultra":
+            # Ultra model parameters
+            model_params = {
                 "prompt": final_prompt,
-                "guidance": 3.5,
-                "interval": 2,
+                "raw": True,
+                "image_prompt_strength": 0.8,
                 "aspect_ratio": selected_aspect_ratio,
                 "output_format": "png",
                 "output_quality": 100,
-                "safety_tolerance": 5
-            },
+                "safety_tolerance": 6
+            }
+        else:
+            # Standard model parameters
+            model_params = {
+                "prompt": final_prompt,
+                "prompt_upsampling": True,
+                "aspect_ratio": selected_aspect_ratio,
+                "output_format": "png",
+                "output_quality": 100,
+                "safety_tolerance": 6
+            }
+
+        output = replicate.run(
+            model_version,
+            input=model_params,
             api_token=REPLICATE_API_TOKEN
         )
 
@@ -436,7 +486,6 @@ async def generate_content():
         await app.redis_client.set(f"image_{file_id}", temp_file_path, ex=1800)  # Store for 30 minutes
         
         # Adjust the user's image count post-generation using their known user_address
-        user_address = data.get('userAddress')
         is_whitelisted_user = is_whitelisted(user_address)
         if not is_whitelisted_user:
            user_prefix = f"user_{user_address}_"
@@ -458,6 +507,7 @@ async def generate_content():
             'text': final_prompt,
             'file_id': file_id, 
             'imagesLeft': images_left,  # Reflect updated image count or UNLIMITED_IMAGES for whitelisted users
+            'tier': tier_used  # Added to response for frontend reference
         })
 
     except Exception as e:
@@ -558,6 +608,16 @@ async def handle_options_request():
     response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, User-Address'
     return response
+
+async def get_user_tier_status(user_address):
+    """Helper function to get user's current tier status."""
+    if is_whitelisted(user_address):
+        return 'Unlimited'
+    
+    user_prefix = f"user_{user_address}_"
+    tier_status = await app.redis_client.get(f"{user_prefix}tier")
+    return tier_status or 'None'
+
 
 async def is_free_trial_active(user_address=None):
     trial_end_date = GLOBAL_TRIAL_START_DATE + timedelta(weeks=6)
@@ -661,6 +721,16 @@ async def reset_monthly_image_count():
                 pipe.set(f"{user_prefix}tier", 'Unlimited')
                 logging.info(f"Reset image limit for whitelisted user: {user_address}")
                 continue
+
+            # Handle Ultra tier access
+            if current_tier == 'Tier 3':
+                # Verify if user still meets Tier 3 requirements
+                tier, meets_requirements = await verify_tier_for_user(user_address)
+                if meets_requirements and tier == 'Tier 3':
+                    new_image_count = SUBSCRIPTION_PLANS['Pixl Realism']['images_per_month']
+                    pipe.set(f"{user_prefix}images_left", str(new_image_count))
+                    logging.info(f"Reset image limit for Tier 3 user with Ultra access: {user_address}")
+                    continue
 
             if current_tier in SUBSCRIPTION_PLANS:
                 # Verify if the user still meets the requirements for their current tier
