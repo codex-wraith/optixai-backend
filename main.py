@@ -459,7 +459,7 @@ async def generate_content():
             # Standard model parameters
             model_params = {
                 "prompt": final_prompt,
-                "prompt_upsampling": True,
+                "prompt_upsampling": False,
                 "aspect_ratio": selected_aspect_ratio,
                 "output_format": "png",
                 "output_quality": 100,
