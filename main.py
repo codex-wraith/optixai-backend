@@ -407,8 +407,25 @@ async def generate_content():
             Ensure to:
             - Keep the original intent and key elements of the prompt
             - Avoid mentioning non-photorealistic or obvious digital effects
-            Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances."""
+            Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances.""",
+
+            'Tier 4': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
+            Craft a single, detailed prompt that includes:
+            - Photorealistic lighting and atmospheric conditions
+            - Intricate textures and surface details
+            - Complex compositional elements
+            - Advanced depth and perspective
+            - Sophisticated color grading
+            Ensure to:
+            - Maintain hyperrealistic quality
+            - Include cinematic elements
+            - Preserve artistic nuances
+            Output a single, comprehensive sentence that guides the AI to create an ultra-detailed, masterfully composed image."""
         }
+
+        refined_prompt = prompts[tier_used]
+        # Generate text based on the refined prompt
+        response = await generate_text(refined_prompt)
 
         # Post-process the refined prompt
         def post_process_prompt(refined_prompt):
@@ -423,17 +440,8 @@ async def generate_content():
             
             return refined_prompt
 
-        # Handle prompt refinement based on tier
-        if tier_used == 'Tier 4':
-            # For Ultra tier, use the prompt directly without refinement
-            final_prompt = prompt_used
-            logging.info(f"Ultra tier prompt (unrefined): {final_prompt}")
-        else:
-            # For other tiers, use the refinement process
-            refined_prompt = prompts[tier_used]
-            response = await generate_text(refined_prompt)
-            final_prompt = post_process_prompt(response.text)
-            logging.info(f"Final prompt: {final_prompt}")
+        final_prompt = post_process_prompt(response.text)
+        logging.info(f"Final prompt: {final_prompt}")
 
         # Use appropriate model based on tier
         if model_version == "black-forest-labs/flux-1.1-pro-ultra":
@@ -505,7 +513,6 @@ async def generate_content():
     except Exception as e:
         app.logger.error(f"Error generating content: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 
 async def verify_tier_for_user(user_address):
