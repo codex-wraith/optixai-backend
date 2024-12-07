@@ -777,23 +777,20 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
                 image_path = temp_file.name
 
             try:
-                # Upload the image using aiohttp
+                # Upload to tmpfiles.org
                 async with aiohttp.ClientSession() as session:
                     data = aiohttp.FormData()
-                    data.add_field('image', 
+                    data.add_field('file',
                                  open(image_path, 'rb'),
                                  filename='image.png',
                                  content_type='image/png')
                     
-                    async with session.post(f'https://api.imgbb.com/1/upload?key={os.getenv("IMGBB_API_KEY")}',
+                    async with session.post('https://tmpfiles.org/api/v1/upload',
                                           data=data) as response:
                         if response.status != 200:
                             raise Exception("Failed to upload image")
                         
                         result = await response.json()
-                        if not result.get('success'):
-                            raise Exception("Image upload failed")
-                        
                         image_url = result['data']['url']
             finally:
                 # Clean up temporary file
