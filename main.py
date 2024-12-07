@@ -457,26 +457,60 @@ async def generate_video():
 
 @app.route('/video-progress/<prediction_id>', methods=['GET'])
 async def get_video_progress(prediction_id):
-    if prediction_id not in predictions:
-        return jsonify({'error': 'Prediction not found'}), 404
+    try:
+        if prediction_id not in predictions:
+            return jsonify({'error': 'Prediction not found'}), 404
 
-    prediction = predictions[prediction_id]
-    
-    # Clean up completed predictions after some time
-    if prediction['status'] in ['succeeded', 'failed']:
-        asyncio.create_task(cleanup_prediction(prediction_id))
+        prediction = predictions[prediction_id]
+        
+        # If we have a replicate_id, use it to get the latest status
+        if 'replicate_id' in prediction:
+            replicate_prediction = replicate.predictions.get(prediction['replicate_id'])
+            
+            # Update our local prediction status based on Replicate's status
+            if replicate_prediction.status == 'succeeded':
+                prediction.update({
+                    'status': 'succeeded',
+                    'progress': 100,
+                    'output': replicate_prediction.output
+                })
+            elif replicate_prediction.status == 'failed':
+                prediction.update({
+                    'status': 'failed',
+                    'error': replicate_prediction.error or 'Video generation failed',
+                    'progress': 0
+                })
+            elif replicate_prediction.status == 'processing':
+                prediction.update({
+                    'status': 'processing',
+                    'progress': 50  # Or calculate based on logs/metrics
+                })
+            elif replicate_prediction.status == 'starting':
+                prediction.update({
+                    'status': 'processing',
+                    'progress': 25
+                })
 
-    # Create proxy URL if video generation succeeded
-    output_url = None
-    if prediction['status'] == 'succeeded' and prediction.get('output'):
-        output_url = f"https://pixl-ai-tokenswap-908b3eeec9dc.herokuapp.com/proxy-video?id={prediction_id}"
+        # Clean up completed predictions after some time
+        if prediction['status'] in ['succeeded', 'failed']:
+            asyncio.create_task(cleanup_prediction(prediction_id))
 
-    return jsonify({
-        'status': prediction['status'],
-        'progress': prediction['progress'],
-        'output': output_url,
-        'error': prediction.get('error')
-    })
+        # Create proxy URL if video generation succeeded
+        output_url = None
+        if prediction['status'] == 'succeeded' and prediction.get('output'):
+            output_url = f"https://pixl-ai-tokenswap-908b3eeec9dc.herokuapp.com/proxy-video?id={prediction_id}"
+
+        return jsonify({
+            'status': prediction['status'],
+            'progress': prediction['progress'],
+            'output': output_url,
+            'error': prediction.get('error')
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error in get_video_progress: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/generate', methods=['POST', 'OPTIONS'])
@@ -763,8 +797,9 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
         # Start the prediction
         predictions[prediction_id]['status'] = 'processing'
         
+        # Validate required prompt
         if not prompt:
-            raise ValueError("Prompt is required")
+            raise ValueError("prompt is required")
 
         # Process image upload if needed
         if first_frame_image and (first_frame_image.startswith('data:') or first_frame_image.startswith('blob:')):
@@ -797,22 +832,20 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
                         result = await response.json()
                         # Convert to direct download URL
                         tmp_url = result['data']['url']
-                        image_url = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
+                        first_frame_image = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
             finally:
                 if os.path.exists(image_path):
                     await aiofiles.os.remove(image_path)
-        else:
-            image_url = first_frame_image
 
         app.logger.info(f"Starting video generation with prompt: {prompt}")
 
-        # Create prediction using Replicate API
+        # Create prediction using Replicate API with exact parameter names
         output = replicate.run(
             "minimax/video-01",
             input={
-                "prompt": prompt,
-                "first_frame_image": image_url,
-                "prompt_optimizer": prompt_optimizer
+                "prompt": prompt,  # string (required)
+                "first_frame_image": first_frame_image,  # file (optional)
+                "prompt_optimizer": prompt_optimizer  # boolean (optional, default: true)
             }
         )
 
@@ -820,7 +853,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
         predictions[prediction_id].update({
             'status': 'succeeded',
             'progress': 100,
-            'output': output  # This will be a URI string as per the schema
+            'output': output  # This will be a URI string
         })
 
     except Exception as e:
@@ -829,6 +862,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'status': 'failed',
             'error': str(e)
         })
+
 
 
 async def cleanup_prediction(prediction_id):
