@@ -755,20 +755,16 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
         # Start the prediction
         predictions[prediction_id]['status'] = 'processing'
         
-        # Ensure we have a valid image URL
-        if not first_frame_image:
-            raise ValueError("No image provided")
+        if not prompt:
+            raise ValueError("Prompt is required")
 
-        # If it's a base64 image or blob URL, we need to convert it to a regular URL
-        if first_frame_image.startswith('data:') or first_frame_image.startswith('blob:'):
-            # Create a temporary file and save the image
+        # Process image upload if needed
+        if first_frame_image and (first_frame_image.startswith('data:') or first_frame_image.startswith('blob:')):
             async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
                 if first_frame_image.startswith('data:'):
-                    # Handle base64 image
                     image_data = base64.b64decode(first_frame_image.split(',')[1])
                     await aiofiles.os.write(temp_file.fileno(), image_data)
                 else:
-                    # Handle blob URL
                     async with aiohttp.ClientSession() as session:
                         async with session.get(first_frame_image) as response:
                             image_data = await response.read()
@@ -791,16 +787,18 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
                             raise Exception("Failed to upload image")
                         
                         result = await response.json()
-                        image_url = result['data']['url']
+                        # Convert to direct download URL
+                        tmp_url = result['data']['url']
+                        image_url = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
             finally:
-                # Clean up temporary file
                 if os.path.exists(image_path):
                     await aiofiles.os.remove(image_path)
         else:
-            # Use the provided URL directly
             image_url = first_frame_image
 
-        # Run the video generation model
+        app.logger.info(f"Starting video generation with prompt: {prompt}")
+
+        # Create prediction using Replicate API
         output = replicate.run(
             "minimax/video-01",
             input={
@@ -814,7 +812,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
         predictions[prediction_id].update({
             'status': 'succeeded',
             'progress': 100,
-            'output': output
+            'output': output  # This will be a URI string as per the schema
         })
 
     except Exception as e:
