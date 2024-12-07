@@ -462,7 +462,9 @@ async def get_video_progress(prediction_id):
 
     try:
         if prediction_id not in predictions:
-            return jsonify({'error': 'Prediction not found'}), 404
+            response = await make_response(jsonify({'error': 'Prediction not found'}), 404)
+            response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+            return response
 
         prediction = predictions[prediction_id]
         
@@ -475,7 +477,7 @@ async def get_video_progress(prediction_id):
                 prediction.update({
                     'status': 'succeeded',
                     'progress': 100,
-                    'output': replicate_prediction.output
+                    'output': replicate_prediction.output  # Direct URL from Replicate
                 })
             elif replicate_prediction.status == 'failed':
                 prediction.update({
@@ -501,25 +503,30 @@ async def get_video_progress(prediction_id):
         if prediction['status'] in ['succeeded', 'failed']:
             asyncio.create_task(cleanup_prediction(prediction_id))
 
-        # Create proxy URL if video generation succeeded
-        output_url = None
-        if prediction['status'] == 'succeeded' and prediction.get('output'):
-            output_url = f"https://pixl-ai-tokenswap-908b3eeec9dc.herokuapp.com/proxy-video?id={prediction_id}"
-
-        return jsonify({
+        response_data = {
             'status': prediction['status'],
             'progress': prediction['progress'],
-            'output': output_url,
+            'output': prediction.get('output'),  # Direct URL from Replicate
             'error': prediction.get('error')
-        })
+        }
+
+        response = await make_response(jsonify(response_data))
+        response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+        return response
 
     except Exception as e:
         app.logger.error(f"Error in get_video_progress: {str(e)}")
-        return jsonify({
-            'error': str(e),
-            'status': 'failed',
-            'progress': 0
-        }), 500
+        error_response = await make_response(
+            jsonify({
+                'error': str(e),
+                'status': 'failed',
+                'progress': 0
+            }), 
+            503
+        )
+        error_response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+        return error_response
+
 
 
 @app.route('/generate', methods=['POST', 'OPTIONS'])
