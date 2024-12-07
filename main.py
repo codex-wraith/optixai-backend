@@ -41,6 +41,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
 UNLIMITED_IMAGES = -1 
+predictions = {}
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
@@ -234,6 +235,39 @@ async def proxy_image():
         return await make_response(f'Error serving image: {str(e)}', 500)
 
 
+@app.route('/proxy-video')
+async def proxy_video():
+    prediction_id = request.args.get('id')
+    if not prediction_id:
+        return await make_response('Video ID is required', 400)
+
+    prediction = predictions.get(prediction_id)
+    if not prediction or 'output' not in prediction:
+        return await make_response('Video not found', 404)
+
+    try:
+        # Get the original video URL
+        video_url = prediction['output']
+        
+        # Download the video
+        async with aiohttp.ClientSession() as session:
+            async with session.get(video_url) as response:
+                if response.status != 200:
+                    return await make_response('Failed to fetch video', 500)
+                
+                video_data = await response.read()
+
+        # Create response with proper headers
+        proxy_response = await make_response(video_data)
+        proxy_response.headers['Content-Type'] = 'video/mp4'
+        proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+        return proxy_response
+
+    except Exception as e:
+        current_app.logger.error(f"Error serving video: {str(e)}")
+        return await make_response(f'Error serving video: {str(e)}', 500)
+
+
 @app.route('/user-session', methods=['POST', 'GET', 'OPTIONS'])
 async def user_session():
     if request.method == 'OPTIONS':
@@ -320,6 +354,65 @@ async def get_trial_status():
         'freeTrialActive': free_trial_active,
         'trialTimeLeft': remaining_time
     })
+
+@app.route('/generate-video', methods=['POST', 'OPTIONS'])
+async def generate_video():
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+
+    try:
+        data = await request.get_json()
+        prompt = data.get('prompt')
+        first_frame_image = data.get('first_frame_image')
+        prompt_optimizer = data.get('prompt_optimizer', True)
+
+        if not prompt:
+            return jsonify({'error': 'Prompt is required'}), 400
+
+        # Generate unique ID for this prediction
+        prediction_id = str(uuid.uuid4())
+
+        # Start prediction in background task
+        asyncio.create_task(run_prediction(
+            prediction_id,
+            prompt,
+            first_frame_image,
+            prompt_optimizer
+        ))
+
+        return jsonify({
+            'success': True,
+            'prediction_id': prediction_id
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error starting video generation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/video-progress/<prediction_id>', methods=['GET'])
+async def get_video_progress(prediction_id):
+    if prediction_id not in predictions:
+        return jsonify({'error': 'Prediction not found'}), 404
+
+    prediction = predictions[prediction_id]
+    
+    # Clean up completed predictions after some time
+    if prediction['status'] in ['succeeded', 'failed']:
+        asyncio.create_task(cleanup_prediction(prediction_id))
+
+    # Create proxy URL if video generation succeeded
+    output_url = None
+    if prediction['status'] == 'succeeded' and prediction.get('output'):
+        output_url = f"https://pixl-ai-tokenswap-908b3eeec9dc.herokuapp.com/proxy-video?id={prediction_id}"
+
+    return jsonify({
+        'status': prediction['status'],
+        'progress': prediction['progress'],
+        'output': output_url,
+        'error': prediction.get('error')
+    })
+
 
 @app.route('/generate', methods=['POST', 'OPTIONS'])
 async def generate_content():
@@ -591,6 +684,55 @@ def verify_user_holdings(checksum_address):
 
 def is_whitelisted(address):
     return address.lower() in (addr.lower() for addr in WHITELISTED_ADDRESSES)
+
+async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimizer):
+    try:
+        # Initialize prediction status
+        predictions[prediction_id] = {
+            'status': 'starting',
+            'progress': 0,
+            'output': None,
+            'error': None
+        }
+
+        # Handle image if it's base64
+        if first_frame_image and first_frame_image.startswith('data:image'):
+            image_data = base64.b64decode(first_frame_image.split(',')[1])
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+                temp_file.write(image_data)
+                image_url = temp_file.name
+        else:
+            image_url = first_frame_image
+
+        # Start the prediction
+        predictions[prediction_id]['status'] = 'processing'
+        
+        output = replicate.run(
+            "minimax/video-01",
+            input={
+                "prompt": prompt,
+                "first_frame_image": image_url,
+                "prompt_optimizer": prompt_optimizer
+            }
+        )
+
+        # Update prediction with result
+        predictions[prediction_id].update({
+            'status': 'succeeded',
+            'progress': 100,
+            'output': output
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error in video generation: {str(e)}")
+        predictions[prediction_id].update({
+            'status': 'failed',
+            'error': str(e)
+        })
+
+async def cleanup_prediction(prediction_id):
+    await asyncio.sleep(3600)  # Keep prediction data for 1 hour instead of 5 minutes
+    predictions.pop(prediction_id, None)
 
 async def generate_text(prompt):
     model = genai.GenerativeModel('gemini-1.5-flash')
