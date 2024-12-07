@@ -290,7 +290,7 @@ async def upload_image():
         await file.save(temp_path)
 
         try:
-            # Upload to your storage service
+            # Upload to tmpfiles.org
             async with aiohttp.ClientSession() as session:
                 data = aiohttp.FormData()
                 data.add_field('file',
@@ -303,14 +303,23 @@ async def upload_image():
                         raise Exception('Failed to upload image')
                     
                     result = await response.json()
-                    image_url = result['url']
+                    # The tmpfiles.org response structure is different
+                    # It returns something like: {"status":"ok","data":{"url":"https://tmpfiles.org/1234/image.png"}}
+                    if not result.get('data', {}).get('url'):
+                        raise Exception('Invalid response from tmpfiles.org')
+                    
+                    # Convert the URL to a direct download link
+                    tmp_url = result['data']['url']
+                    direct_url = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
+                    
+                    app.logger.info(f"Uploaded image. Original URL: {tmp_url}, Direct URL: {direct_url}")
 
             # Store the URL in Redis for later use
-            await app.redis_client.set(f"video_image_{file_id}", image_url, ex=3600)  # Expire after 1 hour
+            await app.redis_client.set(f"video_image_{file_id}", direct_url, ex=3600)  # Expire after 1 hour
 
             return jsonify({
                 'success': True,
-                'image_url': image_url,
+                'image_url': direct_url,
                 'file_id': file_id
             })
 
@@ -322,7 +331,6 @@ async def upload_image():
     except Exception as e:
         app.logger.error(f"Error in upload_image: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 
 @app.route('/user-session', methods=['POST', 'GET', 'OPTIONS'])
