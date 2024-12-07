@@ -274,7 +274,6 @@ async def upload_image():
         return await handle_options_request()
 
     try:
-        # Get the files from the request
         files = await request.files
         if 'image' not in files:
             return jsonify({'error': 'No image file provided'}), 400
@@ -283,36 +282,42 @@ async def upload_image():
         if file.filename == '':
             return jsonify({'error': 'No selected file'}), 400
 
-        # Create a temporary file
-        async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-            # Read the file data
-            file_data = await file.read()
-            # Write to temporary file
-            await aiofiles.os.write(temp_file.fileno(), file_data)
-            temp_path = temp_file.name
+        # Create a unique filename
+        file_id = str(uuid.uuid4())
+        temp_path = f"/tmp/{file_id}.png"
 
-        # Upload to a temporary storage service
-        async with aiohttp.ClientSession() as session:
-            form = aiohttp.FormData()
-            form.add_field('file', 
-                         open(temp_path, 'rb'),
-                         filename='image.png',
-                         content_type='image/png')
-            
-            async with session.post('https://tmpfiles.org/api/v1/upload', data=form) as response:
-                if response.status != 200:
-                    raise Exception('Failed to upload image')
-                
-                result = await response.json()
-                image_url = result['url']
+        # Save the file
+        await file.save(temp_path)
 
-        # Clean up the temporary file
-        await aiofiles.os.remove(temp_path)
+        try:
+            # Upload to your storage service
+            async with aiohttp.ClientSession() as session:
+                data = aiohttp.FormData()
+                data.add_field('file',
+                             open(temp_path, 'rb'),
+                             filename='image.png',
+                             content_type='image/png')
 
-        return jsonify({
-            'success': True,
-            'image_url': image_url
-        })
+                async with session.post('https://tmpfiles.org/api/v1/upload', data=data) as response:
+                    if response.status != 200:
+                        raise Exception('Failed to upload image')
+                    
+                    result = await response.json()
+                    image_url = result['url']
+
+            # Store the URL in Redis for later use
+            await app.redis_client.set(f"video_image_{file_id}", image_url, ex=3600)  # Expire after 1 hour
+
+            return jsonify({
+                'success': True,
+                'image_url': image_url,
+                'file_id': file_id
+            })
+
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     except Exception as e:
         app.logger.error(f"Error in upload_image: {str(e)}")
