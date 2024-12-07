@@ -455,17 +455,20 @@ async def generate_video():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/video-progress/<prediction_id>', methods=['GET'])
+@app.route('/video-progress/<prediction_id>', methods=['GET', 'OPTIONS'])
 async def get_video_progress(prediction_id):
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+
     try:
         if prediction_id not in predictions:
             return jsonify({'error': 'Prediction not found'}), 404
 
         prediction = predictions[prediction_id]
         
-        # If we have a replicate_id, use it to get the latest status
-        if 'replicate_id' in prediction:
-            replicate_prediction = replicate.predictions.get(prediction['replicate_id'])
+        try:
+            # Get the latest prediction status from Replicate
+            replicate_prediction = replicate.predictions.get(prediction.get('replicate_id'))
             
             # Update our local prediction status based on Replicate's status
             if replicate_prediction.status == 'succeeded':
@@ -483,13 +486,16 @@ async def get_video_progress(prediction_id):
             elif replicate_prediction.status == 'processing':
                 prediction.update({
                     'status': 'processing',
-                    'progress': 50  # Or calculate based on logs/metrics
+                    'progress': 50
                 })
             elif replicate_prediction.status == 'starting':
                 prediction.update({
                     'status': 'processing',
                     'progress': 25
                 })
+        except Exception as e:
+            app.logger.error(f"Error fetching Replicate prediction: {str(e)}")
+            # Continue with existing prediction data if there's an error
 
         # Clean up completed predictions after some time
         if prediction['status'] in ['succeeded', 'failed']:
@@ -509,8 +515,11 @@ async def get_video_progress(prediction_id):
 
     except Exception as e:
         app.logger.error(f"Error in get_video_progress: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+        return jsonify({
+            'error': str(e),
+            'status': 'failed',
+            'progress': 0
+        }), 500
 
 
 @app.route('/generate', methods=['POST', 'OPTIONS'])
