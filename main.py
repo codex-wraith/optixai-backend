@@ -268,6 +268,40 @@ async def proxy_video():
         return await make_response(f'Error serving video: {str(e)}', 500)
 
 
+@app.route('/upload-image', methods=['POST'])
+async def upload_image():
+    try:
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
+
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+            file.save(temp_file.name)
+            
+            # Upload to a temporary storage service or your preferred hosting
+            # For this example, we'll use a simple file hosting service
+            # Replace this with your preferred image hosting solution
+            files = {'file': open(temp_file.name, 'rb')}
+            upload_response = requests.post('https://tmpfiles.org/api/v1/upload', files=files)
+            
+            if upload_response.status_code != 200:
+                raise Exception('Failed to upload image')
+            
+            image_url = upload_response.json()['url']
+            
+            return jsonify({
+                'success': True,
+                'image_url': image_url
+            })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/user-session', methods=['POST', 'GET', 'OPTIONS'])
 async def user_session():
     if request.method == 'OPTIONS':
