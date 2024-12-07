@@ -268,38 +268,56 @@ async def proxy_video():
         return await make_response(f'Error serving video: {str(e)}', 500)
 
 
-@app.route('/upload-image', methods=['POST'])
+@app.route('/upload-image', methods=['POST', 'OPTIONS'])
 async def upload_image():
+    if request.method == 'OPTIONS':
+        return await handle_options_request()
+
     try:
-        if 'image' not in request.files:
+        # Get the files from the request
+        files = await request.files
+        if 'image' not in files:
             return jsonify({'error': 'No image file provided'}), 400
 
-        file = request.files['image']
+        file = files['image']
         if file.filename == '':
             return jsonify({'error': 'No selected file'}), 400
 
         # Create a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-            file.save(temp_file.name)
+        async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+            # Read the file data
+            file_data = await file.read()
+            # Write to temporary file
+            await aiofiles.os.write(temp_file.fileno(), file_data)
+            temp_path = temp_file.name
+
+        # Upload to a temporary storage service
+        async with aiohttp.ClientSession() as session:
+            form = aiohttp.FormData()
+            form.add_field('file', 
+                         open(temp_path, 'rb'),
+                         filename='image.png',
+                         content_type='image/png')
             
-            # Upload to a temporary storage service or your preferred hosting
-            # For this example, we'll use a simple file hosting service
-            # Replace this with your preferred image hosting solution
-            files = {'file': open(temp_file.name, 'rb')}
-            upload_response = requests.post('https://tmpfiles.org/api/v1/upload', files=files)
-            
-            if upload_response.status_code != 200:
-                raise Exception('Failed to upload image')
-            
-            image_url = upload_response.json()['url']
-            
-            return jsonify({
-                'success': True,
-                'image_url': image_url
-            })
+            async with session.post('https://tmpfiles.org/api/v1/upload', data=form) as response:
+                if response.status != 200:
+                    raise Exception('Failed to upload image')
+                
+                result = await response.json()
+                image_url = result['url']
+
+        # Clean up the temporary file
+        await aiofiles.os.remove(temp_path)
+
+        return jsonify({
+            'success': True,
+            'image_url': image_url
+        })
 
     except Exception as e:
+        app.logger.error(f"Error in upload_image: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/user-session', methods=['POST', 'GET', 'OPTIONS'])
