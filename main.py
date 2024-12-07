@@ -752,18 +752,48 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'error': None
         }
 
-        # Handle image if it's base64
-        if first_frame_image and first_frame_image.startswith('data:image'):
-            image_data = base64.b64decode(first_frame_image.split(',')[1])
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
-                temp_file.write(image_data)
-                image_url = temp_file.name
-        else:
-            image_url = first_frame_image
-
         # Start the prediction
         predictions[prediction_id]['status'] = 'processing'
         
+        # Ensure we have a valid image URL
+        if not first_frame_image:
+            raise ValueError("No image provided")
+
+        # If it's a base64 image or blob URL, we need to convert it to a regular URL
+        if first_frame_image.startswith('data:') or first_frame_image.startswith('blob:'):
+            # Create a temporary file and save the image
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+                if first_frame_image.startswith('data:'):
+                    # Handle base64 image
+                    image_data = base64.b64decode(first_frame_image.split(',')[1])
+                    temp_file.write(image_data)
+                else:
+                    # Handle blob URL
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(first_frame_image) as response:
+                            image_data = await response.read()
+                            temp_file.write(image_data)
+                
+                image_path = temp_file.name
+
+            # Upload the image to get a public URL
+            try:
+                files = {'image': open(image_path, 'rb')}
+                response = requests.post('https://api.imgbb.com/1/upload', 
+                                      params={'key': os.getenv('IMGBB_API_KEY')})
+                if response.ok:
+                    image_url = response.json()['data']['url']
+                else:
+                    raise Exception("Failed to upload image")
+            finally:
+                # Clean up temporary file
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+        else:
+            # Use the provided URL directly
+            image_url = first_frame_image
+
+        # Run the video generation model
         output = replicate.run(
             "minimax/video-01",
             input={
@@ -786,6 +816,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'status': 'failed',
             'error': str(e)
         })
+
 
 async def cleanup_prediction(prediction_id):
     await asyncio.sleep(3600)  # Keep prediction data for 1 hour instead of 5 minutes
