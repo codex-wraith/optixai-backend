@@ -41,6 +41,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
 UNLIMITED_IMAGES = -1 
+UNLIMITED_VIDEOS = -1 
 predictions = {}
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -50,11 +51,28 @@ WHITELISTED_ADDRESSES = [
     "0x3fF749371f64526DCf706c10892663F374c61bD5"
 ]
 SUBSCRIPTION_PLANS = {
-    'Pixl Art': {'percentage': Decimal('0.1'), 'images_per_month': 100},
-    'Pixl Fusion': {'percentage': Decimal('0.2'), 'images_per_month': 500},
-    'Pixl Realism': {'percentage': Decimal('0.3'), 'images_per_month': 1000},
-    'Pixl Ultra': {'percentage': Decimal('0.3'), 'images_per_month': 1000}  # Same requirements as Tier 3
+    'Pixl Art': {
+        'percentage': Decimal('0.1'), 
+        'images_per_month': 100,
+        'videos_per_month': 0  # No video access for Tier 1
+    },
+    'Pixl Fusion': {
+        'percentage': Decimal('0.2'), 
+        'images_per_month': 500,
+        'videos_per_month': 250  # Half of image count
+    },
+    'Pixl Realism': {
+        'percentage': Decimal('0.3'), 
+        'images_per_month': 1000,
+        'videos_per_month': 500  # Half of image count
+    },
+    'Pixl Ultra': {
+        'percentage': Decimal('0.3'), 
+        'images_per_month': 1000,
+        'videos_per_month': 500  # Same as Tier 3
+    }
 }
+
 app = Quart(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
 app.config['SESSION_TYPE'] = 'redis'
@@ -348,8 +366,10 @@ async def user_session():
             freeTrialActive=False,
             trialTimeLeft=0,
             imagesLeft=UNLIMITED_IMAGES,
+            videosLeft=UNLIMITED_VIDEOS,
             tier='Unlimited',
-            availableUpgrades=[]
+            availableUpgrades=[],
+            hasVideoAccess=True
         )
     
     # Ensure Redis client is initialized
@@ -360,7 +380,7 @@ async def user_session():
     free_trial_active, remaining_time = await is_free_trial_active(user_address)
 
     if request.method == 'POST':
-        images_left, tier_status = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address)
+        images_left, videos_left, tier_status = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address)
         if images_left is None:
             return jsonify({'error': 'No images left to use'}), 400
 
@@ -381,11 +401,12 @@ async def user_session():
     else:
         # For GET requests, fetch current data
         images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
+        videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
         tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
         if free_trial_active and tier_status == 'None':
             tier_status = 'Free Trial'
 
-     # Update available upgrades logic
+    # Update available upgrades logic
     all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
@@ -396,15 +417,41 @@ async def user_session():
     # Add Ultra access flag
     has_ultra_access = tier_status == 'Tier 3' or is_whitelisted(user_address)
 
+    # Determine video access based on tier
+    has_video_access = (
+        is_whitelisted(user_address) or 
+        free_trial_active or 
+        tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
+    )
+
+    # Map tier status to subscription plan if needed
+    tier_mapping = {
+        'Tier 1': 'Pixl Art',
+        'Tier 2': 'Pixl Fusion',
+        'Tier 3': 'Pixl Realism'
+    }
+    
+    # Get video limit based on tier
+    if tier_status in tier_mapping and tier_mapping[tier_status] in SUBSCRIPTION_PLANS:
+        video_limit = SUBSCRIPTION_PLANS[tier_mapping[tier_status]]['videos_per_month']
+    elif free_trial_active:
+        video_limit = 25  # Half of free trial image count
+    else:
+        video_limit = 0
+
     return jsonify(
         success=True,
         freeTrialActive=free_trial_active,
         trialTimeLeft=remaining_time,
         imagesLeft=images_left,
+        videosLeft=videos_left,
+        videoLimit=video_limit,
         tier=tier_status,
         availableUpgrades=available_upgrades,
-        hasUltraAccess=has_ultra_access  # New field
+        hasUltraAccess=has_ultra_access,
+        hasVideoAccess=has_video_access
     )
+
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
 async def get_trial_status():
@@ -427,12 +474,73 @@ async def generate_video():
 
     try:
         data = await request.get_json()
+        user_address = request.headers.get('User-Address') or data.get('userAddress')
         prompt = data.get('prompt')
         first_frame_image = data.get('first_frame_image')
         prompt_optimizer = data.get('prompt_optimizer', True)
 
+        if not user_address:
+            return jsonify({'error': 'User address not provided'}), 400
+
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
+
+        # Check whitelist status and initialize variables
+        is_whitelisted_user = is_whitelisted(user_address)
+        videos_left = UNLIMITED_VIDEOS
+        tier_status = 'Unlimited' if is_whitelisted_user else None
+
+        if not is_whitelisted_user:
+            user_prefix = f"user_{user_address}_"
+            free_trial_active, _ = await is_free_trial_active(user_address)
+            tier_status = await get_user_tier_status(user_address)
+
+            # Check if user has video access based on tier
+            has_video_access = (
+                tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
+                free_trial_active
+            )
+
+            if not has_video_access:
+                return jsonify({
+                    'error': 'Video generation requires Tier 2 or higher subscription',
+                    'tier': tier_status
+                }), 403
+
+            # Get current video count without decrementing
+            _, videos_left, current_tier = await get_or_initialize_user_data(
+                user_prefix, 
+                free_trial_active, 
+                user_address, 
+                decrement_images=False,
+                decrement_videos=False
+            )
+
+            # Check if videos left
+            if videos_left <= 0:
+                return jsonify({
+                    'error': 'No video generations left',
+                    'videosLeft': 0,
+                    'tier': current_tier
+                }), 400
+
+            # Decrement video count if not whitelisted
+            try:
+                _, videos_left, tier_status = await get_or_initialize_user_data(
+                    user_prefix,
+                    free_trial_active,
+                    user_address,
+                    decrement_images=False,
+                    decrement_videos=True
+                )
+            except ValueError as e:
+                return jsonify({
+                    'error': str(e),
+                    'tier': tier_status
+                }), 403
+
+        # Log the generation attempt
+        app.logger.info(f"Video generation initiated - User: {user_address}, Tier: {tier_status}, Videos Left: {videos_left}")
 
         # Generate unique ID for this prediction
         prediction_id = str(uuid.uuid4())
@@ -445,14 +553,29 @@ async def generate_video():
             prompt_optimizer
         ))
 
-        return jsonify({
+        # Return response with comprehensive data
+        response_data = {
             'success': True,
-            'prediction_id': prediction_id
-        })
+            'prediction_id': prediction_id,
+            'videosLeft': videos_left,
+            'tier': tier_status,
+            'isWhitelisted': is_whitelisted_user,
+            'freeTrialActive': free_trial_active if not is_whitelisted_user else False
+        }
+
+        if not is_whitelisted_user and tier_status in SUBSCRIPTION_PLANS:
+            response_data['videoLimit'] = SUBSCRIPTION_PLANS[tier_status]['videos_per_month']
+
+        app.logger.info(f"Video generation request successful - ID: {prediction_id}")
+        return jsonify(response_data)
 
     except Exception as e:
         app.logger.error(f"Error starting video generation: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'status': 'failed'
+        }), 500
+
 
 
 @app.route('/video-progress/<prediction_id>', methods=['GET', 'OPTIONS'])
@@ -879,8 +1002,6 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'error': str(e)
         })
 
-
-
 async def cleanup_prediction(prediction_id):
     await asyncio.sleep(3600)  # Keep prediction data for 1 hour instead of 5 minutes
     predictions.pop(prediction_id, None)
@@ -950,24 +1071,26 @@ async def is_free_trial_active(user_address=None):
     return is_active, remaining_time
 
 
-async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=False):
+async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement_images=False, decrement_videos=False):
     app.logger.info(f"Initializing/getting data for user {user_address}. Free trial active: {free_trial_active}")
     
     if is_whitelisted(user_address):
         app.logger.info(f"User {user_address} is whitelisted")
-        return UNLIMITED_IMAGES, 'Unlimited'
+        return UNLIMITED_IMAGES, UNLIMITED_VIDEOS, 'Unlimited'
     
     user_initialized = await app.redis_client.get(f"{user_prefix}initialized")
     images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
+    videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
     tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
     free_trial_override = await app.redis_client.get(f"{user_prefix}free_trial_override") or 'False'
 
-    app.logger.info(f"Initial state for {user_address}: initialized={user_initialized}, images_left={images_left}, tier_status={tier_status}, free_trial_override={free_trial_override}")
+    app.logger.info(f"Initial state for {user_address}: initialized={user_initialized}, images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}, free_trial_override={free_trial_override}")
 
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
         if not user_initialized:
-            images_left = 50  # Initialize with 50 images only if not initialized
+            images_left = 50  # Initialize with 50 images for trial
+            videos_left = 25  # Initialize with 25 videos for trial (half of images)
             tier_status = 'Free Trial'
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
@@ -976,30 +1099,52 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
             tier_status = actual_tier_status
             if tier_status in SUBSCRIPTION_PLANS:
                 images_left = SUBSCRIPTION_PLANS[tier_status]['images_per_month']
+                videos_left = SUBSCRIPTION_PLANS[tier_status]['videos_per_month']
             else:
                 images_left = 0
+                videos_left = 0
         else:
             tier_status = 'None'
             images_left = 0
-        app.logger.info(f"Non-free trial user {user_address} initialized with tier {tier_status} and {images_left} images")
+            videos_left = 0
+        app.logger.info(f"Non-free trial user {user_address} initialized with tier {tier_status}, {images_left} images, and {videos_left} videos")
 
     if not user_initialized:
         await app.redis_client.set(f"{user_prefix}initialized", 'True')
         await app.redis_client.set(f"{user_prefix}tier", tier_status)
         await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
-        app.logger.info(f"User {user_address} marked as initialized with {images_left} images and tier {tier_status}")
+        await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+        app.logger.info(f"User {user_address} marked as initialized with {images_left} images and {videos_left} videos")
 
-    if decrement and images_left > 0:
+    # Handle image decrement
+    if decrement_images and images_left > 0:
         images_left -= 1
         await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
         app.logger.info(f"Decremented images for {user_address}. New count: {images_left}")
 
-    app.logger.info(f"Final state for {user_address}: images_left={images_left}, tier_status={tier_status}")
-    return images_left, tier_status
+    # Handle video decrement
+    if decrement_videos and videos_left > 0:
+        # Check if user has video access based on tier
+        has_video_access = (
+            tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
+            free_trial_active
+        )
+        
+        if has_video_access:
+            videos_left -= 1
+            await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+            app.logger.info(f"Decremented videos for {user_address}. New count: {videos_left}")
+        else:
+            app.logger.warning(f"User {user_address} attempted to use video generation without proper access")
+            raise ValueError("Video generation requires Tier 2 or higher subscription")
+
+    app.logger.info(f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}")
+    return images_left, videos_left, tier_status
 
 
-async def reset_monthly_image_count():
-    logging.info("Starting monthly image count reset")
+
+async def reset_monthly_counts():
+    logging.info("Starting monthly image and video count reset")
     async with app.redis_client.pipeline(transaction=True) as pipe:
         # Get all user keys
         user_keys = await app.redis_client.keys("user_*_tier")
@@ -1011,8 +1156,9 @@ async def reset_monthly_image_count():
             
             if is_whitelisted(user_address):
                 pipe.set(f"{user_prefix}images_left", str(UNLIMITED_IMAGES))
+                pipe.set(f"{user_prefix}videos_left", str(UNLIMITED_VIDEOS))
                 pipe.set(f"{user_prefix}tier", 'Unlimited')
-                logging.info(f"Reset image limit for whitelisted user: {user_address}")
+                logging.info(f"Reset limits for whitelisted user: {user_address}")
                 continue
 
             # Handle Ultra tier access
@@ -1021,8 +1167,10 @@ async def reset_monthly_image_count():
                 tier, meets_requirements = await verify_tier_for_user(user_address)
                 if meets_requirements and tier == 'Tier 3':
                     new_image_count = SUBSCRIPTION_PLANS['Pixl Realism']['images_per_month']
+                    new_video_count = SUBSCRIPTION_PLANS['Pixl Realism']['videos_per_month']
                     pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                    logging.info(f"Reset image limit for Tier 3 user with Ultra access: {user_address}")
+                    pipe.set(f"{user_prefix}videos_left", str(new_video_count))
+                    logging.info(f"Reset limits for Tier 3 user: {user_address}, images: {new_image_count}, videos: {new_video_count}")
                     continue
 
             if current_tier in SUBSCRIPTION_PLANS:
@@ -1032,51 +1180,61 @@ async def reset_monthly_image_count():
                 if meets_requirements and tier == current_tier:
                     # User still qualifies for their current tier
                     new_image_count = SUBSCRIPTION_PLANS[current_tier]['images_per_month']
+                    new_video_count = SUBSCRIPTION_PLANS[current_tier]['videos_per_month']
                     pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                    logging.info(f"Reset image limit for user: {user_address}, maintaining tier: {current_tier}, images: {new_image_count}")
+                    pipe.set(f"{user_prefix}videos_left", str(new_video_count))
+                    logging.info(f"Reset limits for user: {user_address}, maintaining tier: {current_tier}, images: {new_image_count}, videos: {new_video_count}")
                 else:
                     # User's tier has changed, perform full verification
                     if meets_requirements and tier in SUBSCRIPTION_PLANS:
                         new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
+                        new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
                         pipe.set(f"{user_prefix}images_left", str(new_image_count))
+                        pipe.set(f"{user_prefix}videos_left", str(new_video_count))
                         pipe.set(f"{user_prefix}tier", tier)
-                        logging.info(f"Updated tier for user: {user_address}, new tier: {tier}, images: {new_image_count}")
+                        logging.info(f"Updated tier for user: {user_address}, new tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
                     else:
                         # User no longer meets requirements for any tier
                         pipe.set(f"{user_prefix}images_left", '0')
+                        pipe.set(f"{user_prefix}videos_left", '0')
                         pipe.set(f"{user_prefix}tier", 'None')
-                        logging.info(f"User {user_address} no longer meets tier requirements. Set images to 0.")
+                        logging.info(f"User {user_address} no longer meets tier requirements. Set counts to 0.")
             else:
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
                 free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
-                    free_trial_images = 50  # Or whatever your free trial limit is
+                    free_trial_images = 50
+                    free_trial_videos = 25  # Half of image count for trial
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
+                    pipe.set(f"{user_prefix}videos_left", str(free_trial_videos))
                     pipe.set(f"{user_prefix}tier", 'Free Trial')
-                    logging.info(f"Reset image limit for active free trial user: {user_address}, images: {free_trial_images}")
+                    logging.info(f"Reset limits for trial user: {user_address}, images: {free_trial_images}, videos: {free_trial_videos}")
                 else:
                     # Check if user now qualifies for a tier
                     tier, meets_requirements = await verify_tier_for_user(user_address)
                     if meets_requirements and tier in SUBSCRIPTION_PLANS:
                         new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
+                        new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
                         pipe.set(f"{user_prefix}images_left", str(new_image_count))
+                        pipe.set(f"{user_prefix}videos_left", str(new_video_count))
                         pipe.set(f"{user_prefix}tier", tier)
-                        logging.info(f"User {user_address} now qualifies for tier: {tier}, images: {new_image_count}")
+                        logging.info(f"User {user_address} now qualifies for tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
                     else:
                         pipe.set(f"{user_prefix}images_left", '0')
+                        pipe.set(f"{user_prefix}videos_left", '0')
                         pipe.set(f"{user_prefix}tier", 'None')
-                        logging.info(f"No active tier or free trial for user: {user_address}. Set images to 0.")
+                        logging.info(f"No active tier or free trial for user: {user_address}. Set counts to 0.")
             
             pipe.set(f"{user_prefix}last_reset", str(datetime.now().timestamp()))
         
         # Execute all commands in the pipeline
         await pipe.execute()
     
-    logging.info("Monthly image count reset completed")
+    logging.info("Monthly image and video count reset completed")
 
 # Set up the scheduler
 scheduler = AsyncIOScheduler()
-scheduler.add_job(reset_monthly_image_count, CronTrigger(day=1, hour=0, minute=0))
+scheduler.add_job(reset_monthly_counts, CronTrigger(day=1, hour=0, minute=0))
 
 
 async def create_redis_client():
