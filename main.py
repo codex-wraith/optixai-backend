@@ -171,12 +171,12 @@ async def get_description():
         return await handle_options_request()
 
     description = (
-        "Getting started with Pixl AI is simple! Click 'Get Started' and connect your wallet using your email or providers like MetaMask. "
-        "Once connected, you'll instantly unlock your free trial with 50 images and 25 videos across all tiers. "
-        "Generate unique AI images in various styles, from pixel art to ultra-realistic, and bring them to life with our video generation feature. "
-        "Tier 2 and above subscribers can create videos from text prompts or transform their generated images into dynamic animations."
+        "Welcome to Pixl AI! Connect your wallet using email or providers like MetaMask to access our powerful AI generation tools. "
+        "Create unique images in multiple styles - from pixel art to ultra-realistic renders. "
+        "With Pixl Fusion and above, unlock video generation to create dynamic animations from text prompts or transform your AI-generated images into stunning videos."
     )
     return jsonify({'description': description})
+
 
 
 @app.route('/tiers-info', methods=['GET', 'OPTIONS'])
