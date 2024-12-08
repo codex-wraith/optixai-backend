@@ -44,7 +44,7 @@ UNLIMITED_IMAGES = -1
 UNLIMITED_VIDEOS = -1 
 predictions = {}
 WHITELISTED_ADDRESSES = [
-    "0x024cD0d7E79b707a63bC72bbB8f1D337561a1bDC",  
+    "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0xB48B371E4C6Af3ec298AdF6Dd32dec80a3Bffa09",
@@ -937,53 +937,60 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
         if not prompt:
             raise ValueError("Prompt is required")
 
-        # Process image upload if needed
-        if first_frame_image and (first_frame_image.startswith('data:') or first_frame_image.startswith('blob:')):
-            async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
-                if first_frame_image.startswith('data:'):
-                    image_data = base64.b64decode(first_frame_image.split(',')[1])
-                    await aiofiles.os.write(temp_file.fileno(), image_data)
-                else:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(first_frame_image) as response:
-                            image_data = await response.read()
-                            await aiofiles.os.write(temp_file.fileno(), image_data)
-                
-                image_path = temp_file.name
+        # Initialize input parameters
+        input_params = {
+            "prompt": prompt,
+            "prompt_optimizer": prompt_optimizer
+        }
 
-            try:
-                # Upload to tmpfiles.org
-                async with aiohttp.ClientSession() as session:
-                    data = aiohttp.FormData()
-                    data.add_field('file',
-                                 open(image_path, 'rb'),
-                                 filename='image.png',
-                                 content_type='image/png')
+        # Only process and include first_frame_image if it's provided
+        if first_frame_image:
+            # Process image upload if needed
+            if first_frame_image.startswith('data:') or first_frame_image.startswith('blob:'):
+                async with aiofiles.tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+                    if first_frame_image.startswith('data:'):
+                        image_data = base64.b64decode(first_frame_image.split(',')[1])
+                        await aiofiles.os.write(temp_file.fileno(), image_data)
+                    else:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(first_frame_image) as response:
+                                image_data = await response.read()
+                                await aiofiles.os.write(temp_file.fileno(), image_data)
                     
-                    async with session.post('https://tmpfiles.org/api/v1/upload',
-                                          data=data) as response:
-                        if response.status != 200:
-                            raise Exception("Failed to upload image")
+                    image_path = temp_file.name
+
+                try:
+                    # Upload to tmpfiles.org
+                    async with aiohttp.ClientSession() as session:
+                        data = aiohttp.FormData()
+                        data.add_field('file',
+                                     open(image_path, 'rb'),
+                                     filename='image.png',
+                                     content_type='image/png')
                         
-                        result = await response.json()
-                        tmp_url = result['data']['url']
-                        image_url = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
-            finally:
-                if os.path.exists(image_path):
-                    await aiofiles.os.remove(image_path)
-        else:
-            image_url = first_frame_image
+                        async with session.post('https://tmpfiles.org/api/v1/upload',
+                                              data=data) as response:
+                            if response.status != 200:
+                                raise Exception("Failed to upload image")
+                            
+                            result = await response.json()
+                            tmp_url = result['data']['url']
+                            image_url = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
+                finally:
+                    if os.path.exists(image_path):
+                        await aiofiles.os.remove(image_path)
+            else:
+                image_url = first_frame_image
+
+            # Add image URL to input parameters only if we have one
+            input_params["first_frame_image"] = image_url
 
         app.logger.info(f"Starting video generation with prompt: {prompt}")
 
         # Create prediction using async method
         replicate_prediction = await replicate.predictions.async_create(
             model="minimax/video-01",
-            input={
-                "prompt": prompt,
-                "first_frame_image": image_url,
-                "prompt_optimizer": prompt_optimizer
-            }
+            input=input_params
         )
 
         # Store the Replicate prediction ID
@@ -1001,6 +1008,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'status': 'failed',
             'error': str(e)
         })
+
 
 async def cleanup_prediction(prediction_id):
     await asyncio.sleep(3600)  # Keep prediction data for 1 hour instead of 5 minutes
