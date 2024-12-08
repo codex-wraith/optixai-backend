@@ -853,9 +853,9 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
 
         app.logger.info(f"Starting video generation with prompt: {prompt}")
 
-        # Create prediction using Replicate API
+        # Create prediction using Replicate API with correct version ID
         replicate_prediction = replicate.predictions.create(
-            version="minimax/video-01",
+            version="5af12c11b202e154115d9114d6b23573924cd51691162a39b29a6d36543e6592",  # Correct version ID for minimax/video-01
             input={
                 "prompt": prompt,
                 "first_frame_image": image_url,
@@ -878,6 +878,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'status': 'failed',
             'error': str(e)
         })
+
 
 
 async def cleanup_prediction(prediction_id):
