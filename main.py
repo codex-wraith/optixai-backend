@@ -223,7 +223,7 @@ async def check_whitelist():
         'isWhitelisted': is_whitelisted_user
     })
 
-@app.route('/proxy-image')
+@app.route('/image-ai')
 async def proxy_image():
     file_id = request.args.get('id')
     if not file_id:
@@ -253,7 +253,7 @@ async def proxy_image():
         return await make_response(f'Error serving image: {str(e)}', 500)
 
 
-@app.route('/proxy-video')
+@app.route('/video-ai')
 async def proxy_video():
     prediction_id = request.args.get('id')
     if not prediction_id:
