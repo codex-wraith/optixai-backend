@@ -800,6 +800,7 @@ def verify_user_holdings(checksum_address):
 def is_whitelisted(address):
     return address.lower() in (addr.lower() for addr in WHITELISTED_ADDRESSES)
 
+
 async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimizer):
     try:
         # Initialize prediction status
@@ -810,12 +811,8 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'error': None
         }
 
-        # Start the prediction
-        predictions[prediction_id]['status'] = 'processing'
-        
-        # Validate required prompt
         if not prompt:
-            raise ValueError("prompt is required")
+            raise ValueError("Prompt is required")
 
         # Process image upload if needed
         if first_frame_image and (first_frame_image.startswith('data:') or first_frame_image.startswith('blob:')):
@@ -846,31 +843,34 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
                             raise Exception("Failed to upload image")
                         
                         result = await response.json()
-                        # Convert to direct download URL
                         tmp_url = result['data']['url']
-                        first_frame_image = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
+                        image_url = tmp_url.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
             finally:
                 if os.path.exists(image_path):
                     await aiofiles.os.remove(image_path)
+        else:
+            image_url = first_frame_image
 
         app.logger.info(f"Starting video generation with prompt: {prompt}")
 
-        # Create prediction using Replicate API with exact parameter names
-        output = replicate.run(
-            "minimax/video-01",
+        # Create prediction using Replicate API
+        replicate_prediction = replicate.predictions.create(
+            version="minimax/video-01",
             input={
-                "prompt": prompt,  # string (required)
-                "first_frame_image": first_frame_image,  # file (optional)
-                "prompt_optimizer": prompt_optimizer  # boolean (optional, default: true)
+                "prompt": prompt,
+                "first_frame_image": image_url,
+                "prompt_optimizer": prompt_optimizer
             }
         )
 
-        # Update prediction with result
+        # Store the Replicate prediction ID
         predictions[prediction_id].update({
-            'status': 'succeeded',
-            'progress': 100,
-            'output': output  # This will be a URI string
+            'replicate_id': replicate_prediction.id,
+            'status': 'processing',
+            'progress': 25
         })
+
+        app.logger.info(f"Created prediction with ID: {replicate_prediction.id}")
 
     except Exception as e:
         app.logger.error(f"Error in video generation: {str(e)}")
@@ -878,7 +878,6 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'status': 'failed',
             'error': str(e)
         })
-
 
 
 async def cleanup_prediction(prediction_id):
