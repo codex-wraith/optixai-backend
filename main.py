@@ -931,7 +931,8 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             'status': 'starting',
             'progress': 0,
             'output': None,
-            'error': None
+            'error': None,
+            'start_time': datetime.now()
         }
 
         if not prompt:
@@ -993,14 +994,49 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
             input=input_params
         )
 
-        # Store the Replicate prediction ID
+        # Store the Replicate prediction ID and start monitoring
         predictions[prediction_id].update({
             'replicate_id': replicate_prediction.id,
             'status': 'processing',
-            'progress': 25
+            'progress': 0
         })
 
         app.logger.info(f"Created prediction with ID: {replicate_prediction.id}")
+
+        # Monitor prediction progress
+        while True:
+            try:
+                # Get latest prediction status
+                current_prediction = replicate.predictions.get(replicate_prediction.id)
+                elapsed_time = (datetime.now() - predictions[prediction_id]['start_time']).total_seconds()
+                
+                if current_prediction.status == 'succeeded':
+                    predictions[prediction_id].update({
+                        'status': 'succeeded',
+                        'progress': 100,
+                        'output': current_prediction.output
+                    })
+                    break
+                elif current_prediction.status == 'failed':
+                    predictions[prediction_id].update({
+                        'status': 'failed',
+                        'progress': 0,
+                        'error': current_prediction.error or 'Video generation failed'
+                    })
+                    break
+                else:
+                    # Calculate progress based on elapsed time
+                    progress = min(int((elapsed_time / 60) * 100), 99)  # Cap at 99% until complete
+                    predictions[prediction_id].update({
+                        'status': current_prediction.status,
+                        'progress': progress
+                    })
+
+                await asyncio.sleep(1)  # Check every second
+
+            except Exception as e:
+                app.logger.error(f"Error checking prediction status: {str(e)}")
+                await asyncio.sleep(2)
 
     except Exception as e:
         app.logger.error(f"Error in video generation: {str(e)}")
