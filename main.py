@@ -42,8 +42,6 @@ client = openai.OpenAI(api_key=OPENAI_API_KEY)
 GLOBAL_TRIAL_START_DATE = datetime(2024, 12, 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
-TRIAL_IMAGE_COUNT = 50
-TRIAL_VIDEO_COUNT = 25 
 predictions = {}
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -1096,39 +1094,37 @@ async def is_free_trial_active(user_address=None):
     now = datetime.now()
     is_active = now < trial_end_date
     
-    trial_info = {
-        'is_active': is_active,
-        'time_left': {
-            'days': 0,
-            'hours': 0,
-            'minutes': 0,
-            'seconds': 0
-        },
-        'image_count': TRIAL_IMAGE_COUNT if is_active else 0,
-        'video_count': TRIAL_VIDEO_COUNT if is_active else 0
-    }
-    
     if is_active:
         time_left = trial_end_date - now
         days = time_left.days
         hours, remainder = divmod(time_left.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
-        trial_info['time_left'] = {
+        remaining_time = {
             'days': days,
             'hours': hours,
             'minutes': minutes,
             'seconds': seconds
         }
+    else:
+        remaining_time = {
+            'days': 0,
+            'hours': 0,
+            'minutes': 0,
+            'seconds': 0
+        }
 
     if user_address and is_active:
         free_trial_override = await app.redis_client.get(f"user_{user_address}_free_trial_override")
         if free_trial_override == 'True':
-            trial_info['is_active'] = False
-            trial_info['image_count'] = 0
-            trial_info['video_count'] = 0
+            is_active = False
+            remaining_time = {
+                'days': 0,
+                'hours': 0,
+                'minutes': 0,
+                'seconds': 0
+            }
 
-    return trial_info['is_active'], trial_info['time_left'], trial_info['image_count'], trial_info['video_count']
-
+    return is_active, remaining_time
 
 
 async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement_images=False, decrement_videos=False):
@@ -1149,8 +1145,8 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
         if not user_initialized:
-            images_left = TRIAL_IMAGE_COUNT
-            videos_left = TRIAL_VIDEO_COUNT
+            images_left = 50  # Initialize with 50 images for trial
+            videos_left = 25  # Initialize with 25 videos for trial (half of images)
             tier_status = 'Free Trial'
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
@@ -1263,8 +1259,8 @@ async def reset_monthly_counts():
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
                 free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
-                    free_trial_images = TRIAL_IMAGE_COUNT
-                    free_trial_videos = TRIAL_VIDEO_COUNT
+                    free_trial_images = 50
+                    free_trial_videos = 25  # Half of image count for trial
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
                     pipe.set(f"{user_prefix}videos_left", str(free_trial_videos))
                     pipe.set(f"{user_prefix}tier", 'Free Trial')
