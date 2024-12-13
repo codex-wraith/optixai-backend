@@ -44,7 +44,7 @@ UNLIMITED_IMAGES = -1
 UNLIMITED_VIDEOS = -1 
 predictions = {}
 WHITELISTED_ADDRESSES = [
-    "0xd1dFe5ecA86d2F809C0C93e5A4e90843457421aF",  
+    "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0xB48B371E4C6Af3ec298AdF6Dd32dec80a3Bffa09",
@@ -198,17 +198,26 @@ async def tiers_info():
                 'percentage': float(percentage),
                 'tokensRequired': float(tokens_required),
                 'imagesPerMonth': plan['images_per_month'],
-                'isUltraTier': tier == 'Pixl Ultra'  # Add flag for Ultra tier
+                'videosPerMonth': plan['videos_per_month'],
+                'hasVideoAccess': plan['videos_per_month'] > 0,
+                'isUltraTier': tier == 'Pixl Ultra',
+                'features': {
+                    'imageGeneration': True,
+                    'videoGeneration': plan['videos_per_month'] > 0,
+                    'ultraQuality': tier == 'Pixl Ultra' or tier == 'Pixl Realism'
+                }
             }
         
         return jsonify({
             'success': True,
             'totalSupply': float(total_supply_adjusted),
-            'tiers': tiers_info
+            'tiers': tiers_info,
+            'videoTierMinimum': 'Pixl Fusion'  # Indicates minimum tier for video access
         })
     except Exception as e:
         logging.error(f"Error fetching tiers info: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/check-whitelist', methods=['GET', 'OPTIONS'])
