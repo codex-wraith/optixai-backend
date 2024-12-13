@@ -858,37 +858,36 @@ async def generate_content():
         file_id = str(uuid.uuid4())  # Generate a unique ID
         await app.redis_client.set(f"image_{file_id}", temp_file_path, ex=1800)  # Store for 30 minutes
         
-        # Adjust the user's image count post-generation using their known user_address
+                # Adjust the user's image count post-generation using their known user_address
         is_whitelisted_user = is_whitelisted(user_address)
         if not is_whitelisted_user:
             user_prefix = f"user_{user_address}_"
             free_trial_active, _, trial_images, trial_videos = await is_free_trial_active(user_address)
 
             if free_trial_active:
-                # During trial, use trial image count
-                images_left = trial_images
-                videos_left = trial_videos
-                current_tier = 'Free Trial'
+                # Get current counts from Redis
+                current_images = int(await app.redis_client.get(f"{user_prefix}images_left") or trial_images)
+                current_videos = int(await app.redis_client.get(f"{user_prefix}videos_left") or trial_videos)
                 
-                # Check if there are trial images left
-                if images_left <= 0:
+                # Check if there are images left
+                if current_images <= 0:
                     return jsonify({
                         'error': 'No trial images left to use',
                         'imagesLeft': 0,
-                        'tier': current_tier,
+                        'tier': 'Free Trial',
                         'freeTrialActive': True
                     }), 400
 
-                # Decrement trial image count
-                images_left -= 1
-                await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+                # Decrement and update image count
+                current_images -= 1
+                await app.redis_client.set(f"{user_prefix}images_left", str(current_images))
                 
                 return jsonify({
                     'text': final_prompt,
                     'file_id': file_id,
-                    'imagesLeft': images_left,
-                    'videosLeft': videos_left,
-                    'tier': current_tier,
+                    'imagesLeft': current_images,
+                    'videosLeft': current_videos,
+                    'tier': 'Free Trial',
                     'freeTrialActive': True
                 })
             else:
@@ -936,8 +935,6 @@ async def generate_content():
                 'tier': 'Unlimited',
                 'freeTrialActive': False
             })
-
-
 
     except Exception as e:
         app.logger.error(f"Error generating content: {str(e)}")
