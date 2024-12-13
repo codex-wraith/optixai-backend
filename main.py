@@ -406,9 +406,8 @@ async def user_session():
             tier_status = actual_tier_status
         elif free_trial_active:
             tier_status = 'Free Trial'
-            if not await app.redis_client.exists(f"{user_prefix}images_left"):
-                await app.redis_client.set(f"{user_prefix}images_left", str(trial_image_count))
-                await app.redis_client.set(f"{user_prefix}videos_left", str(trial_video_count))
+            images_left = trial_image_count
+            videos_left = trial_video_count
         else:
             tier_status = actual_tier_status
 
@@ -418,15 +417,10 @@ async def user_session():
         images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
         videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
         tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
-        
         if free_trial_active and tier_status == 'None':
             tier_status = 'Free Trial'
-            # Only set trial counts if they haven't been initialized yet
-            if not await app.redis_client.exists(f"{user_prefix}images_left"):
-                images_left = trial_image_count
-                videos_left = trial_video_count
-                await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
-                await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+            images_left = trial_image_count
+            videos_left = trial_video_count
 
     # Update available upgrades logic
     all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
@@ -457,7 +451,7 @@ async def user_session():
     if tier_status in tier_mapping and tier_mapping[tier_status] in SUBSCRIPTION_PLANS:
         video_limit = SUBSCRIPTION_PLANS[tier_mapping[tier_status]]['videos_per_month']
     elif free_trial_active:
-        video_limit = trial_video_count
+        video_limit = 25  # Half of free trial image count
     else:
         video_limit = 0
 
@@ -473,7 +467,6 @@ async def user_session():
         hasUltraAccess=has_ultra_access,
         hasVideoAccess=has_video_access
     )
-
 
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
@@ -1213,16 +1206,18 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
 
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
-        # Get trial counts from is_free_trial_active
-        _, _, trial_images, trial_videos = await is_free_trial_active(user_address)
         if not user_initialized:
+            # Only set trial counts on first initialization
+            _, _, trial_images, trial_videos = await is_free_trial_active(user_address)
             images_left = trial_images
             videos_left = trial_videos
             tier_status = 'Free Trial'
+            app.logger.info(f"Initializing trial user with {images_left} images and {videos_left} videos")
         elif tier_status == 'Free Trial':
-            # Update counts if they're lower than trial amounts
-            images_left = max(images_left, trial_images)
-            videos_left = max(videos_left, trial_videos)
+            # Keep existing counts for trial users
+            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
+            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
+            app.logger.info(f"Using existing trial counts: {images_left} images and {videos_left} videos")
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
         actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
@@ -1271,6 +1266,7 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
 
     app.logger.info(f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}")
     return images_left, videos_left, tier_status
+
 
 
 
