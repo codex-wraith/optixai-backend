@@ -406,8 +406,9 @@ async def user_session():
             tier_status = actual_tier_status
         elif free_trial_active:
             tier_status = 'Free Trial'
-            images_left = trial_image_count
-            videos_left = trial_video_count
+            if not await app.redis_client.exists(f"{user_prefix}images_left"):
+                await app.redis_client.set(f"{user_prefix}images_left", str(trial_image_count))
+                await app.redis_client.set(f"{user_prefix}videos_left", str(trial_video_count))
         else:
             tier_status = actual_tier_status
 
@@ -417,10 +418,15 @@ async def user_session():
         images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
         videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
         tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
+        
         if free_trial_active and tier_status == 'None':
             tier_status = 'Free Trial'
-            images_left = trial_image_count
-            videos_left = trial_video_count
+            # Only set trial counts if they haven't been initialized yet
+            if not await app.redis_client.exists(f"{user_prefix}images_left"):
+                images_left = trial_image_count
+                videos_left = trial_video_count
+                await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+                await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
 
     # Update available upgrades logic
     all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
@@ -451,7 +457,7 @@ async def user_session():
     if tier_status in tier_mapping and tier_mapping[tier_status] in SUBSCRIPTION_PLANS:
         video_limit = SUBSCRIPTION_PLANS[tier_mapping[tier_status]]['videos_per_month']
     elif free_trial_active:
-        video_limit = 25  # Half of free trial image count
+        video_limit = trial_video_count
     else:
         video_limit = 0
 
@@ -467,6 +473,7 @@ async def user_session():
         hasUltraAccess=has_ultra_access,
         hasVideoAccess=has_video_access
     )
+
 
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
