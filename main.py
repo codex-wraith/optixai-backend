@@ -42,6 +42,8 @@ client = openai.OpenAI(api_key=OPENAI_API_KEY)
 GLOBAL_TRIAL_START_DATE = datetime(2024, 12, 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
+TRIAL_IMAGE_COUNT = 50
+TRIAL_VIDEO_COUNT = 25 
 predictions = {}
 WHITELISTED_ADDRESSES = [
     "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
@@ -389,7 +391,7 @@ async def user_session():
         app.redis_client = await create_redis_client()
 
     user_prefix = f"user_{user_address}_"
-    free_trial_active, remaining_time = await is_free_trial_active(user_address)
+    free_trial_active, remaining_time, trial_image_count, trial_video_count = await is_free_trial_active(user_address)
 
     if request.method == 'POST':
         images_left, videos_left, tier_status = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address)
@@ -399,24 +401,26 @@ async def user_session():
         actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
         
         if actual_tier_status != 'None' and meets_requirements and free_trial_active:
-            # User upgraded during free trial and meets requirements
             await app.redis_client.set(f"user_{user_address}_free_trial_override", 'False')
             free_trial_active = False
             tier_status = actual_tier_status
         elif free_trial_active:
             tier_status = 'Free Trial'
+            images_left = trial_image_count
+            videos_left = trial_video_count
         else:
             tier_status = actual_tier_status
 
         await app.redis_client.set(f"{user_prefix}tier", tier_status)
 
     else:
-        # For GET requests, fetch current data
         images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
         videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
         tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
         if free_trial_active and tier_status == 'None':
             tier_status = 'Free Trial'
+            images_left = trial_image_count
+            videos_left = trial_video_count
 
     # Update available upgrades logic
     all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
@@ -471,13 +475,13 @@ async def get_trial_status():
         return '', 204
 
     user_address = request.headers.get('User-Address')
-    free_trial_active, remaining_time = await is_free_trial_active(user_address)
+    free_trial_active, remaining_time, _, _ = await is_free_trial_active(user_address)
 
-    # Return the free trial status as JSON
     return jsonify({
         'freeTrialActive': free_trial_active,
         'trialTimeLeft': remaining_time
     })
+
 
 @app.route('/generate-video', methods=['POST', 'OPTIONS'])
 async def generate_video():
@@ -504,7 +508,7 @@ async def generate_video():
 
         if not is_whitelisted_user:
             user_prefix = f"user_{user_address}_"
-            free_trial_active, _ = await is_free_trial_active(user_address)
+            free_trial_active, _, _, _ = await is_free_trial_active(user_address)
             tier_status = await get_user_tier_status(user_address)
 
             # Check if user has video access based on tier
@@ -831,27 +835,83 @@ async def generate_content():
         # Adjust the user's image count post-generation using their known user_address
         is_whitelisted_user = is_whitelisted(user_address)
         if not is_whitelisted_user:
-           user_prefix = f"user_{user_address}_"
-           free_trial_active, _ = await is_free_trial_active(user_address)
-    
-           # First, get the current image count without decrementing
-           images_left, _ = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=False)
-    
-           # Check if there are images left
-           if images_left <= 0:
-              return jsonify({'error': 'No images left to use'}), 400
-    
-           # If we have images, then decrement and get the new count
-           images_left, _ = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement=True)
+            user_prefix = f"user_{user_address}_"
+            free_trial_active, _, trial_images, trial_videos = await is_free_trial_active(user_address)
+
+            if free_trial_active:
+                # During trial, use trial image count
+                images_left = trial_images
+                videos_left = trial_videos
+                current_tier = 'Free Trial'
+                
+                # Check if there are trial images left
+                if images_left <= 0:
+                    return jsonify({
+                        'error': 'No trial images left to use',
+                        'imagesLeft': 0,
+                        'tier': current_tier,
+                        'freeTrialActive': True
+                    }), 400
+
+                # Decrement trial image count
+                images_left -= 1
+                await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+                
+                return jsonify({
+                    'text': final_prompt,
+                    'file_id': file_id,
+                    'imagesLeft': images_left,
+                    'videosLeft': videos_left,
+                    'tier': current_tier,
+                    'freeTrialActive': True
+                })
+            else:
+                # Not in trial, use regular subscription logic
+                # First, get the current image count without decrementing
+                images_left, videos_left, current_tier = await get_or_initialize_user_data(
+                    user_prefix, 
+                    free_trial_active, 
+                    user_address, 
+                    decrement_images=False,
+                    decrement_videos=False
+                )
+
+                # Check if there are images left
+                if images_left <= 0:
+                    return jsonify({
+                        'error': 'No images left to use',
+                        'imagesLeft': 0,
+                        'tier': current_tier
+                    }), 400
+
+                # If we have images, then decrement and get the new count
+                images_left, videos_left, current_tier = await get_or_initialize_user_data(
+                    user_prefix, 
+                    free_trial_active, 
+                    user_address, 
+                    decrement_images=True,
+                    decrement_videos=False
+                )
+
+                return jsonify({
+                    'text': final_prompt,
+                    'file_id': file_id,
+                    'imagesLeft': images_left,
+                    'videosLeft': videos_left,
+                    'tier': current_tier,
+                    'freeTrialActive': False
+                })
         else:
-         images_left = UNLIMITED_IMAGES
-        
-        return jsonify({
-            'text': final_prompt,
-            'file_id': file_id, 
-            'imagesLeft': images_left,  # Reflect updated image count or UNLIMITED_IMAGES for whitelisted users
-            'tier': tier_used  # Added to response for frontend reference
-        })
+            return jsonify({
+                'text': final_prompt,
+                'file_id': file_id,
+                'imagesLeft': UNLIMITED_IMAGES,
+                'videosLeft': UNLIMITED_VIDEOS,
+                'tier': 'Unlimited',
+                'freeTrialActive': False
+            })
+
+
 
     except Exception as e:
         app.logger.error(f"Error generating content: {str(e)}")
@@ -1094,37 +1154,39 @@ async def is_free_trial_active(user_address=None):
     now = datetime.now()
     is_active = now < trial_end_date
     
+    trial_info = {
+        'is_active': is_active,
+        'time_left': {
+            'days': 0,
+            'hours': 0,
+            'minutes': 0,
+            'seconds': 0
+        },
+        'image_count': TRIAL_IMAGE_COUNT if is_active else 0,
+        'video_count': TRIAL_VIDEO_COUNT if is_active else 0
+    }
+    
     if is_active:
         time_left = trial_end_date - now
         days = time_left.days
         hours, remainder = divmod(time_left.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
-        remaining_time = {
+        trial_info['time_left'] = {
             'days': days,
             'hours': hours,
             'minutes': minutes,
             'seconds': seconds
         }
-    else:
-        remaining_time = {
-            'days': 0,
-            'hours': 0,
-            'minutes': 0,
-            'seconds': 0
-        }
 
     if user_address and is_active:
         free_trial_override = await app.redis_client.get(f"user_{user_address}_free_trial_override")
         if free_trial_override == 'True':
-            is_active = False
-            remaining_time = {
-                'days': 0,
-                'hours': 0,
-                'minutes': 0,
-                'seconds': 0
-            }
+            trial_info['is_active'] = False
+            trial_info['image_count'] = 0
+            trial_info['video_count'] = 0
 
-    return is_active, remaining_time
+    return trial_info['is_active'], trial_info['time_left'], trial_info['image_count'], trial_info['video_count']
+
 
 
 async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement_images=False, decrement_videos=False):
@@ -1144,10 +1206,16 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
 
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
+        # Get trial counts from is_free_trial_active
+        _, _, trial_images, trial_videos = await is_free_trial_active(user_address)
         if not user_initialized:
-            images_left = 50  # Initialize with 50 images for trial
-            videos_left = 25  # Initialize with 25 videos for trial (half of images)
+            images_left = trial_images
+            videos_left = trial_videos
             tier_status = 'Free Trial'
+        elif tier_status == 'Free Trial':
+            # Update counts if they're lower than trial amounts
+            images_left = max(images_left, trial_images)
+            videos_left = max(videos_left, trial_videos)
     elif not user_initialized:
         app.logger.info(f"Initializing non-free trial user {user_address}")
         actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
@@ -1217,6 +1285,15 @@ async def reset_monthly_counts():
                 logging.info(f"Reset limits for whitelisted user: {user_address}")
                 continue
 
+            # Check trial status first
+            free_trial_active, _, trial_images, trial_videos = await is_free_trial_active(user_address)
+            if free_trial_active:
+                pipe.set(f"{user_prefix}images_left", str(trial_images))
+                pipe.set(f"{user_prefix}videos_left", str(trial_videos))
+                pipe.set(f"{user_prefix}tier", 'Free Trial')
+                logging.info(f"Reset limits for trial user: {user_address}, images: {trial_images}, videos: {trial_videos}")
+                continue
+
             # Handle Ultra tier access
             if current_tier == 'Tier 3':
                 # Verify if user still meets Tier 3 requirements
@@ -1256,30 +1333,20 @@ async def reset_monthly_counts():
                         pipe.set(f"{user_prefix}tier", 'None')
                         logging.info(f"User {user_address} no longer meets tier requirements. Set counts to 0.")
             else:
-                # Handle users not in a subscription plan (e.g., free trial or no active plan)
-                free_trial_active, _ = await is_free_trial_active(user_address)
-                if free_trial_active:
-                    free_trial_images = 50
-                    free_trial_videos = 25  # Half of image count for trial
-                    pipe.set(f"{user_prefix}images_left", str(free_trial_images))
-                    pipe.set(f"{user_prefix}videos_left", str(free_trial_videos))
-                    pipe.set(f"{user_prefix}tier", 'Free Trial')
-                    logging.info(f"Reset limits for trial user: {user_address}, images: {free_trial_images}, videos: {free_trial_videos}")
+                # Check if user now qualifies for a tier
+                tier, meets_requirements = await verify_tier_for_user(user_address)
+                if meets_requirements and tier in SUBSCRIPTION_PLANS:
+                    new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
+                    new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
+                    pipe.set(f"{user_prefix}images_left", str(new_image_count))
+                    pipe.set(f"{user_prefix}videos_left", str(new_video_count))
+                    pipe.set(f"{user_prefix}tier", tier)
+                    logging.info(f"User {user_address} now qualifies for tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
                 else:
-                    # Check if user now qualifies for a tier
-                    tier, meets_requirements = await verify_tier_for_user(user_address)
-                    if meets_requirements and tier in SUBSCRIPTION_PLANS:
-                        new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
-                        new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
-                        pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                        pipe.set(f"{user_prefix}videos_left", str(new_video_count))
-                        pipe.set(f"{user_prefix}tier", tier)
-                        logging.info(f"User {user_address} now qualifies for tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
-                    else:
-                        pipe.set(f"{user_prefix}images_left", '0')
-                        pipe.set(f"{user_prefix}videos_left", '0')
-                        pipe.set(f"{user_prefix}tier", 'None')
-                        logging.info(f"No active tier or free trial for user: {user_address}. Set counts to 0.")
+                    pipe.set(f"{user_prefix}images_left", '0')
+                    pipe.set(f"{user_prefix}videos_left", '0')
+                    pipe.set(f"{user_prefix}tier", 'None')
+                    logging.info(f"No active tier or free trial for user: {user_address}. Set counts to 0.")
             
             pipe.set(f"{user_prefix}last_reset", str(datetime.now().timestamp()))
         
@@ -1291,6 +1358,7 @@ async def reset_monthly_counts():
 # Set up the scheduler
 scheduler = AsyncIOScheduler()
 scheduler.add_job(reset_monthly_counts, CronTrigger(day=1, hour=0, minute=0))
+
 
 
 async def create_redis_client():
