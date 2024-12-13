@@ -406,37 +406,37 @@ async def user_session():
             tier_status = actual_tier_status
         elif free_trial_active:
             tier_status = 'Free Trial'
-            # Only set counts if they don't exist
             if not await app.redis_client.exists(f"{user_prefix}images_left"):
-                images_left = trial_image_count
-                await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+                await app.redis_client.set(f"{user_prefix}images_left", str(trial_image_count))
             if not await app.redis_client.exists(f"{user_prefix}videos_left"):
-                videos_left = trial_video_count
-                await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+                await app.redis_client.set(f"{user_prefix}videos_left", str(trial_video_count))
+            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or trial_image_count)
+            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or trial_video_count)
         else:
             tier_status = actual_tier_status
 
         await app.redis_client.set(f"{user_prefix}tier", tier_status)
 
     else:
-        images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
-        videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
+        # GET request handling
         tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
         
         if free_trial_active:
-            if tier_status == 'None':
+            if tier_status == 'None' or tier_status == 'Free Trial':
                 tier_status = 'Free Trial'
-                # Only set initial counts if they don't exist in Redis
+                # Initialize counts if they don't exist
                 if not await app.redis_client.exists(f"{user_prefix}images_left"):
-                    images_left = trial_image_count
-                    await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+                    await app.redis_client.set(f"{user_prefix}images_left", str(trial_image_count))
                 if not await app.redis_client.exists(f"{user_prefix}videos_left"):
-                    videos_left = trial_video_count
-                    await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
-            elif tier_status == 'Free Trial':
-                # Use existing counts from Redis
-                images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or trial_image_count)
-                videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or trial_video_count)
+                    await app.redis_client.set(f"{user_prefix}videos_left", str(trial_video_count))
+                
+            # Always get the current counts from Redis
+            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or trial_image_count)
+            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or trial_video_count)
+        else:
+            # Non-trial user
+            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
+            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
 
     # Update available upgrades logic
     all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
@@ -483,6 +483,7 @@ async def user_session():
         hasUltraAccess=has_ultra_access,
         hasVideoAccess=has_video_access
     )
+
 
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
