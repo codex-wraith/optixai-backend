@@ -1263,8 +1263,8 @@ async def reset_monthly_counts():
                 # Handle users not in a subscription plan (e.g., free trial or no active plan)
                 free_trial_active, _ = await is_free_trial_active(user_address)
                 if free_trial_active:
-                    free_trial_images = 50
-                    free_trial_videos = 25  # Half of image count for trial
+                    free_trial_images = TRIAL_IMAGE_COUNT
+                    free_trial_videos = TRIAL_VIDEO_COUNT
                     pipe.set(f"{user_prefix}images_left", str(free_trial_images))
                     pipe.set(f"{user_prefix}videos_left", str(free_trial_videos))
                     pipe.set(f"{user_prefix}tier", 'Free Trial')
