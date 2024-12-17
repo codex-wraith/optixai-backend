@@ -39,7 +39,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 12, 6)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
 SUPPORTED_CHAIN_ID = 8453  # Base mainnet only
 BASE_NETWORK_CONFIG = {
     'chain_id': 8453,
