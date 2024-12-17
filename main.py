@@ -40,16 +40,6 @@ if not REPLICATE_API_TOKEN:
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
-SUPPORTED_CHAIN_ID = 8453  # Base mainnet only
-BASE_NETWORK_CONFIG = {
-    'chain_id': 8453,
-    'rpc_urls': [
-        f'https://base-mainnet.infura.io/v3/{INFURA_API_KEY}',
-        'https://mainnet.base.org'
-    ],
-    'token_address': '0x532f27101965dd16442E59d40670FaF5eBB142E4'
-}
-
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
 TRIAL_IMAGE_COUNT = 50
@@ -100,15 +90,6 @@ cors(app,
 async def get_price():
     # Extract parameters from the request
     chain_id = request.args.get('chainId')
-    
-    # Verify chain ID is Base mainnet
-    if chain_id != str(SUPPORTED_CHAIN_ID):  # '8453'
-        return jsonify({
-            'error': 'Only Base mainnet is supported',
-            'code': 'UNSUPPORTED_CHAIN',
-            'detail': f'Expected chain ID {SUPPORTED_CHAIN_ID} (Base), got {chain_id}'
-        }), 400
-    
     sell_token = request.args.get('sellToken')
     buy_token = request.args.get('buyToken')
     sell_amount = request.args.get('sellAmount')
@@ -122,7 +103,7 @@ async def get_price():
 
     # Prepare the query parameters
     params = {
-        "chainId": SUPPORTED_CHAIN_ID,  # Always use Base chain ID
+        "chainId": chain_id,
         "sellToken": sell_token,
         "buyToken": buy_token,
         "sellAmount": sell_amount,
@@ -136,36 +117,19 @@ async def get_price():
         "0x-version": "v2"
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return jsonify(data)
-                else:
-                    error_data = await response.json()
-                    logging.error(f"0x API error for price: {error_data}")
-                    return jsonify(error_data), response.status
-    except Exception as e:
-        logging.error(f"Error fetching price from 0x API: {str(e)}")
-        return jsonify({
-            'error': 'Failed to fetch price',
-            'detail': str(e)
-        }), 500
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                return jsonify(data)
+            else:
+                error_data = await response.json()
+                return jsonify(error_data), response.status
 
 @app.route('/quote', methods=['GET'])
 async def get_quote():
     # Extract parameters from the request
     chain_id = request.args.get('chainId')
-    
-    # Verify chain ID is Base mainnet
-    if chain_id != str(SUPPORTED_CHAIN_ID):  # '8453'
-        return jsonify({
-            'error': 'Only Base mainnet is supported',
-            'code': 'UNSUPPORTED_CHAIN',
-            'detail': f'Expected chain ID {SUPPORTED_CHAIN_ID} (Base), got {chain_id}'
-        }), 400
-    
     sell_token = request.args.get('sellToken')
     buy_token = request.args.get('buyToken')
     sell_amount = request.args.get('sellAmount')
@@ -179,7 +143,7 @@ async def get_quote():
 
     # Prepare the query parameters
     params = {
-        "chainId": SUPPORTED_CHAIN_ID,  # Always use Base chain ID
+        "chainId": chain_id,
         "sellToken": sell_token,
         "buyToken": buy_token,
         "sellAmount": sell_amount,
@@ -193,22 +157,15 @@ async def get_quote():
         "0x-version": "v2"
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return jsonify(data)
-                else:
-                    error_data = await response.json()
-                    logging.error(f"0x API error for quote: {error_data}")
-                    return jsonify(error_data), response.status
-    except Exception as e:
-        logging.error(f"Error fetching quote from 0x API: {str(e)}")
-        return jsonify({
-            'error': 'Failed to fetch quote',
-            'detail': str(e)
-        }), 500
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            if response.status == 200:
+                data = await response.json()
+                return jsonify(data)
+            else:
+                error_data = await response.json()
+                return jsonify(error_data), response.status
+
 
 @app.route('/description', methods=['GET', 'OPTIONS'])
 async def get_description():
@@ -989,16 +946,8 @@ async def verify_tier_for_user(user_address):
         return 'Unlimited', True
 
     try:
-        web3 = get_web3_instance()
-        # Verify we're on Base mainnet
-        if web3.eth.chain_id != SUPPORTED_CHAIN_ID:
-            logging.error("Not connected to Base mainnet")
-            return 'None', False
-
         checksum_address = Web3.to_checksum_address(user_address)
-        percentage_held, _ = verify_user_holdings(checksum_address)
-        
-        logging.info(f"Verifying tier for {user_address} on Base mainnet - Percentage held: {percentage_held}%")
+        percentage_held, _ = verify_user_holdings(checksum_address)  # Unpack the tuple
         
         for tier, plan in SUBSCRIPTION_PLANS.items():
             if percentage_held >= plan['percentage']:
@@ -1006,31 +955,29 @@ async def verify_tier_for_user(user_address):
         
         return 'None', False
     except Exception as e:
-        logging.error(f"Error verifying tier for user {user_address} on Base: {str(e)}")
+        logging.error(f"Error verifying tier for user {user_address}: {str(e)}")
         return 'None', False
 
 
 def get_web3_instance():
-    try:
-        # Use config RPC URLs
-        web3 = Web3(Web3.HTTPProvider(BASE_NETWORK_CONFIG['rpc_urls'][0]))  # Infura endpoint
-        if web3.is_connected():
-            return web3
-        raise ConnectionError("Failed to connect to Base mainnet via Infura")
-    except Web3Exception as e:
-        logging.error(f"Failed to connect to Base mainnet via Infura: {e}")
+    providers = [
+        Web3.HTTPProvider(f'https://mainnet.infura.io/v3/{INFURA_API_KEY}'),
+        # You can add backup providers here, e.g.:
+        # Web3.HTTPProvider('https://eth-mainnet.alchemyapi.io/v2/YOUR-ALCHEMY-KEY'),
+    ]
+
+    for provider in providers:
         try:
-            # Use fallback RPC from config
-            web3 = Web3(Web3.HTTPProvider(BASE_NETWORK_CONFIG['rpc_urls'][1]))
+            web3 = Web3(provider)
             if web3.is_connected():
-                logging.warning("Using fallback Base RPC endpoint")
                 return web3
-        except Exception as fallback_error:
-            logging.error(f"Fallback RPC also failed: {fallback_error}")
-        raise ConnectionError("Failed to connect to any Base endpoint")
+        except Web3Exception as e:
+            logging.error(f"Failed to connect to {provider.endpoint_uri}: {e}")
+    
+    raise ConnectionError("Failed to connect to any Ethereum provider")
 
 def get_token_contract():
-    token_address = BASE_NETWORK_CONFIG['token_address']  # Use address from config
+    token_address = "0xaddb6dc7e2f7caea67621dd3ca2e8321ade33286"
     token_abi = [
         {"constant": True, "inputs": [{"name": "_owner", "type": "address"}],
          "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}],
@@ -1042,24 +989,19 @@ def get_token_contract():
          "name": "decimals", "outputs": [{"name": "", "type": "uint8"}],
          "type": "function"}
     ]
-    
-    try:
-        web3 = get_web3_instance()
-        checksum_token_address = Web3.to_checksum_address(token_address)
-        contract = web3.eth.contract(address=checksum_token_address, abi=token_abi)
-        return contract
-    except Exception as e:
-        logging.error(f"Error creating token contract instance: {str(e)}")
-        raise
-
+    web3 = get_web3_instance()
+    checksum_token_address = Web3.to_checksum_address(token_address)
+    return web3.eth.contract(address=checksum_token_address, abi=token_abi)
 
 def verify_user_holdings(checksum_address):
     try:
         contract = get_token_contract()
+        
         balance = contract.functions.balanceOf(checksum_address).call()
         total_supply = contract.functions.totalSupply().call()
         token_decimals = contract.functions.decimals().call()
         
+        # Adjust balance and total supply for decimals
         balance_adjusted = Decimal(balance) / Decimal(10 ** token_decimals)
         total_supply_adjusted = Decimal(total_supply) / Decimal(10 ** token_decimals)
         
@@ -1068,13 +1010,10 @@ def verify_user_holdings(checksum_address):
             return Decimal(0), total_supply_adjusted
         
         percentage_held = (balance_adjusted / total_supply_adjusted) * 100
-        logging.info(f"Base holdings - Address: {checksum_address}, Balance: {balance_adjusted}, Percentage: {percentage_held}%")
-        
         return percentage_held, total_supply_adjusted
     except Exception as e:
-        logging.error(f"Error retrieving token holdings: {str(e)}")
+        logging.error(f"Error in retrieving token holdings for {checksum_address}: {str(e)}")
         return Decimal(0), Decimal(0)
-
 
 def is_whitelisted(address):
     return address.lower() in (addr.lower() for addr in WHITELISTED_ADDRESSES)
