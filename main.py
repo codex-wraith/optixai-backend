@@ -47,7 +47,7 @@ BASE_NETWORK_CONFIG = {
         f'https://base-mainnet.infura.io/v3/{INFURA_API_KEY}',
         'https://mainnet.base.org'
     ],
-    'token_address': '0xaddb6dc7e2f7caea67621dd3ca2e8321ade33286'
+    'token_address': '0x532f27101965dd16442E59d40670FaF5eBB142E4'
 }
 
 UNLIMITED_IMAGES = -1 
