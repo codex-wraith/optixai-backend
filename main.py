@@ -39,7 +39,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 10 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
 TRIAL_IMAGE_COUNT = 50
@@ -961,7 +961,7 @@ async def verify_tier_for_user(user_address):
 
 def get_web3_instance():
     providers = [
-        Web3.HTTPProvider(f'https://mainnet.infura.io/v3/{INFURA_API_KEY}'),
+        Web3.HTTPProvider(f'https://base-mainnet.infura.io/v3/{INFURA_API_KEY}'),
         # You can add backup providers here, e.g.:
         # Web3.HTTPProvider('https://eth-mainnet.alchemyapi.io/v2/YOUR-ALCHEMY-KEY'),
     ]
@@ -977,7 +977,7 @@ def get_web3_instance():
     raise ConnectionError("Failed to connect to any Ethereum provider")
 
 def get_token_contract():
-    token_address = "0xaddb6dc7e2f7caea67621dd3ca2e8321ade33286"
+    token_address = "0x532f27101965dd16442E59d40670FaF5eBB142E4"
     token_abi = [
         {"constant": True, "inputs": [{"name": "_owner", "type": "address"}],
          "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}],
