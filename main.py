@@ -694,10 +694,14 @@ async def generate_content():
         data = await request.get_json()
         user_address = data.get('userAddress')
         
+        if not user_address:
+            return jsonify({'error': 'User address is required'}), 400
+
+        # Check whitelist status first
+        is_whitelisted_user = is_whitelisted(user_address)
+        
         # Extract aspect ratio, default to '1:1' if not provided
         aspect_ratio = data.get('aspectRatio', '1:1')
-
-        # Map aspect ratio values if necessary
         aspect_ratio_mapping = {
             '1:1': '1:1',
             '16:9': '16:9',
@@ -708,40 +712,50 @@ async def generate_content():
         }
         selected_aspect_ratio = aspect_ratio_mapping.get(aspect_ratio, '1:1')
     
-        # Get trial status first
+        # Get trial status and tier status
         free_trial_active, _, _, _ = await is_free_trial_active(user_address)
         tier_status = await get_user_tier_status(user_address)
 
-        # Verify Ultra access if attempting to use tier4
-        if data.get('tier4Prompt'):
-            has_ultra_access = tier_status == 'Tier 3' or is_whitelisted(user_address) or free_trial_active
-            app.logger.info(f"Ultra access check - User: {user_address}, Tier: {tier_status}, Trial: {free_trial_active}, Has Access: {has_ultra_access}")
-            if not has_ultra_access:
-                return jsonify({
-                    'error': 'Unauthorized access to Ultra tier',
-                    'tier': tier_status,
-                    'freeTrialActive': free_trial_active
-                }), 403
+        app.logger.info(f"Generate request - User: {user_address}, Whitelisted: {is_whitelisted_user}, Trial: {free_trial_active}, Tier: {tier_status}")
 
         # Determine which tier and prompt to use
         prompt_used = None
         model_version = "black-forest-labs/flux-1.1-pro"
 
-        # Updated tier checks to include trial users
-        if data.get('tier4Prompt') and (tier_status == 'Tier 3' or is_whitelisted(user_address) or free_trial_active):
-            prompt_used = data['tier4Prompt']
-            tier_used = 'Tier 4'
-            model_version = "black-forest-labs/flux-1.1-pro-ultra"
-        elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Tier 3', 'Pixl Realism']):
-            prompt_used = data['tier3Prompt']
-            tier_used = 'Tier 3'
-        elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism']):
-            prompt_used = data['tier2Prompt']
-            tier_used = 'Tier 2'
-        elif data.get('tier1Prompt') and (free_trial_active or tier_status in ['Tier 1', 'Tier 2', 'Tier 3', 'Pixl Art', 'Pixl Fusion', 'Pixl Realism']):
-            prompt_used = data['tier1Prompt']
-            tier_used = 'Tier 1'
+        # Modified tier checks to properly handle whitelisted users
+        if is_whitelisted_user:
+            # Whitelisted users can use any tier
+            if data.get('tier4Prompt'):
+                prompt_used = data['tier4Prompt']
+                tier_used = 'Tier 4'
+                model_version = "black-forest-labs/flux-1.1-pro-ultra"
+            elif data.get('tier3Prompt'):
+                prompt_used = data['tier3Prompt']
+                tier_used = 'Tier 3'
+            elif data.get('tier2Prompt'):
+                prompt_used = data['tier2Prompt']
+                tier_used = 'Tier 2'
+            elif data.get('tier1Prompt'):
+                prompt_used = data['tier1Prompt']
+                tier_used = 'Tier 1'
         else:
+            # Non-whitelisted users follow regular tier logic
+            if data.get('tier4Prompt') and (tier_status == 'Tier 3' or free_trial_active):
+                prompt_used = data['tier4Prompt']
+                tier_used = 'Tier 4'
+                model_version = "black-forest-labs/flux-1.1-pro-ultra"
+            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Tier 3', 'Pixl Realism']):
+                prompt_used = data['tier3Prompt']
+                tier_used = 'Tier 3'
+            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism']):
+                prompt_used = data['tier2Prompt']
+                tier_used = 'Tier 2'
+            elif data.get('tier1Prompt') and (free_trial_active or tier_status in ['Tier 1', 'Tier 2', 'Tier 3', 'Pixl Art', 'Pixl Fusion', 'Pixl Realism']):
+                prompt_used = data['tier1Prompt']
+                tier_used = 'Tier 1'
+
+        if not prompt_used:
+            app.logger.error(f"No valid prompt - User: {user_address}, Prompts received: {[k for k in data.keys() if 'Prompt' in k]}")
             return jsonify({'error': 'No valid prompt provided or unauthorized tier access'}), 400
 
         logging.info(f"Original prompt ({tier_used}): {prompt_used}")
