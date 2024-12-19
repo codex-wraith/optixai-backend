@@ -39,7 +39,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 12, 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
 TRIAL_IMAGE_COUNT = 50
@@ -991,7 +991,7 @@ def get_web3_instance():
     raise ConnectionError("Failed to connect to any Ethereum provider")
 
 def get_token_contract():
-    token_address = "0x140284d383918c522ACA8F1CC6Df49043b562e9b"
+    token_address = "0x0464a6939B0e341Ed502B2c4a6Dc1e60884762DF"
     token_abi = [
         {"constant": True, "inputs": [{"name": "_owner", "type": "address"}],
          "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}],
