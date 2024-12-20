@@ -39,7 +39,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 12, 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
 TRIAL_IMAGE_COUNT = 50
@@ -61,20 +61,19 @@ SUBSCRIPTION_PLANS = {
     'Pixl Fusion': {
         'percentage': Decimal('0.2'), 
         'images_per_month': 500,
-        'videos_per_month': 250  # Half of image count
+        'videos_per_month': 250
     },
     'Pixl Realism': {
         'percentage': Decimal('0.3'), 
         'images_per_month': 1000,
-        'videos_per_month': 500  # Half of image count
+        'videos_per_month': 500
     },
     'Pixl Ultra': {
-        'percentage': Decimal('0.3'), 
-        'images_per_month': 1000,
-        'videos_per_month': 500  # Same as Tier 3
+        'percentage': Decimal('0.4'),  # Should be higher than Pixl Realism
+        'images_per_month': 2000,
+        'videos_per_month': 1000
     }
 }
-
 app = Quart(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
 app.config['SESSION_TYPE'] = 'redis'
@@ -381,9 +380,11 @@ async def user_session():
             trialTimeLeft=0,
             imagesLeft=UNLIMITED_IMAGES,
             videosLeft=UNLIMITED_VIDEOS,
+            videoLimit=UNLIMITED_VIDEOS,
             tier='Unlimited',
             availableUpgrades=[],
-            hasVideoAccess=True
+            hasVideoAccess=True,
+            hasUltraAccess=True
         )
     
     # Ensure Redis client is initialized
@@ -439,7 +440,7 @@ async def user_session():
             videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
 
     # Update available upgrades logic
-    all_tiers = ['Tier 1', 'Tier 2', 'Tier 3']  # Ultra is not in upgrade path
+    all_tiers = ['Pixl Art', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] 
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
     else:
@@ -447,25 +448,18 @@ async def user_session():
         available_upgrades = [tier for tier in all_tiers if tier not in current_tiers]
 
     # Add Ultra access flag
-    has_ultra_access = tier_status == 'Tier 3' or is_whitelisted(user_address)
+    has_ultra_access = tier_status == 'Pixl Ultra' or is_whitelisted(user_address)
 
     # Determine video access based on tier
     has_video_access = (
         is_whitelisted(user_address) or 
         free_trial_active or 
-        tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
+        tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
     )
 
-    # Map tier status to subscription plan if needed
-    tier_mapping = {
-        'Tier 1': 'Pixl Art',
-        'Tier 2': 'Pixl Fusion',
-        'Tier 3': 'Pixl Realism'
-    }
-    
     # Get video limit based on tier
-    if tier_status in tier_mapping and tier_mapping[tier_status] in SUBSCRIPTION_PLANS:
-        video_limit = SUBSCRIPTION_PLANS[tier_mapping[tier_status]]['videos_per_month']
+    if tier_status in SUBSCRIPTION_PLANS:
+        video_limit = SUBSCRIPTION_PLANS[tier_status]['videos_per_month']
     elif free_trial_active:
         video_limit = trial_video_count
     else:
@@ -483,7 +477,6 @@ async def user_session():
         hasUltraAccess=has_ultra_access,
         hasVideoAccess=has_video_access
     )
-
 
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
@@ -530,7 +523,7 @@ async def generate_video():
 
             # Check if user has video access based on tier
             has_video_access = (
-                tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
+                tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
                 free_trial_active
             )
 
@@ -727,32 +720,32 @@ async def generate_content():
             # Whitelisted users can use any tier
             if data.get('tier4Prompt'):
                 prompt_used = data['tier4Prompt']
-                tier_used = 'Tier 4'
+                tier_used = 'Pixl Ultra'
                 model_version = "black-forest-labs/flux-1.1-pro-ultra"
             elif data.get('tier3Prompt'):
                 prompt_used = data['tier3Prompt']
-                tier_used = 'Tier 3'
+                tier_used = 'Pixl Realism'
             elif data.get('tier2Prompt'):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Tier 2'
+                tier_used = 'Pixl Fusion'
             elif data.get('tier1Prompt'):
                 prompt_used = data['tier1Prompt']
-                tier_used = 'Tier 1'
+                tier_used = 'Pixl Art'
         else:
             # Non-whitelisted users follow regular tier logic
-            if data.get('tier4Prompt') and (tier_status == 'Tier 3' or free_trial_active):
+            if data.get('tier4Prompt') and (tier_status == 'Pixl Ultra' or free_trial_active):
                 prompt_used = data['tier4Prompt']
-                tier_used = 'Tier 4'
+                tier_used = 'Pixl Ultra'
                 model_version = "black-forest-labs/flux-1.1-pro-ultra"
-            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Tier 3', 'Pixl Realism']):
+            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Pixl Realism', 'Pixl Ultra']):
                 prompt_used = data['tier3Prompt']
-                tier_used = 'Tier 3'
-            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism']):
+                tier_used = 'Pixl Realism'
+            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Tier 2'
-            elif data.get('tier1Prompt') and (free_trial_active or tier_status in ['Tier 1', 'Tier 2', 'Tier 3', 'Pixl Art', 'Pixl Fusion', 'Pixl Realism']):
+                tier_used = 'Pixl Fusion'
+            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Pixl Art', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']):
                 prompt_used = data['tier1Prompt']
-                tier_used = 'Tier 1'
+                tier_used = 'Pixl Art'
 
         if not prompt_used:
             app.logger.error(f"No valid prompt - User: {user_address}, Prompts received: {[k for k in data.keys() if 'Prompt' in k]}")
@@ -761,7 +754,7 @@ async def generate_content():
         logging.info(f"Original prompt ({tier_used}): {prompt_used}")
 
         prompts = {
-            'Tier 1': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
+            'Pixl Art': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Emphasizes classic pixel art aesthetics and charm
             - Incorporates playful cartoon-style elements
@@ -773,7 +766,7 @@ async def generate_content():
             - Realistic or photographic elements
             Present the output as one comprehensive, descriptive sentence that naturally blends pixel art and cartoon elements.""",
 
-            'Tier 2': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
+            'Pixl Fusion': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Specifies elements to be rendered in pixel art style
             - Describes photorealistic details
@@ -785,7 +778,7 @@ async def generate_content():
             - References to UI elements or non-artistic components
             Present the output as one comprehensive, descriptive sentence without separating pixel and realistic elements.""",
 
-            'Tier 3': f"""Enhance this prompt for a photorealistic image with subtle artistic touches: '{prompt_used}'
+            'Pixl Realism': f"""Enhance this prompt for a photorealistic image with subtle artistic touches: '{prompt_used}'
             Craft a single, detailed prompt that includes:
             - Specific lighting details (direction, intensity, color)
             - Subtle artistic textures that maintain realism
@@ -796,7 +789,7 @@ async def generate_content():
             - Avoid mentioning non-photorealistic or obvious digital effects
             Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances.""",
 
-            'Tier 4': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
+            'Pixl Ultra': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
             Craft a single, detailed prompt that includes:
             - Photorealistic lighting and atmospheric conditions
             - Intricate textures and surface details
@@ -961,16 +954,23 @@ async def verify_tier_for_user(user_address):
 
     try:
         checksum_address = Web3.to_checksum_address(user_address)
-        percentage_held, _ = verify_user_holdings(checksum_address)  # Unpack the tuple
+        percentage_held, _ = verify_user_holdings(checksum_address)
         
-        for tier, plan in SUBSCRIPTION_PLANS.items():
+        # Sort tiers by percentage in descending order
+        sorted_tiers = sorted(
+            SUBSCRIPTION_PLANS.items(),
+            key=lambda x: x[1]['percentage'],
+            reverse=True
+        )
+        
+        for tier, plan in sorted_tiers:
             if percentage_held >= plan['percentage']:
                 return tier, True
-        
         return 'None', False
     except Exception as e:
         logging.error(f"Error verifying tier for user {user_address}: {str(e)}")
         return 'None', False
+
 
 
 def get_web3_instance():
@@ -1289,7 +1289,7 @@ async def get_or_initialize_user_data(user_prefix, free_trial_active, user_addre
     if decrement_videos and videos_left > 0:
         # Check if user has video access based on tier
         has_video_access = (
-            tier_status in ['Tier 2', 'Tier 3', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
+            tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
             free_trial_active
         )
         
@@ -1334,60 +1334,31 @@ async def reset_monthly_counts():
                 logging.info(f"Reset limits for trial user: {user_address}, images: {trial_images}, videos: {trial_videos}")
                 continue
 
-            # Handle Ultra tier access
-            if current_tier == 'Tier 3':
-                # Verify if user still meets Tier 3 requirements
-                tier, meets_requirements = await verify_tier_for_user(user_address)
-                if meets_requirements and tier == 'Tier 3':
-                    new_image_count = SUBSCRIPTION_PLANS['Pixl Realism']['images_per_month']
-                    new_video_count = SUBSCRIPTION_PLANS['Pixl Realism']['videos_per_month']
-                    pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                    pipe.set(f"{user_prefix}videos_left", str(new_video_count))
-                    logging.info(f"Reset limits for Tier 3 user: {user_address}, images: {new_image_count}, videos: {new_video_count}")
-                    continue
+            # Verify if the user still meets the requirements for their current tier
+            tier, meets_requirements = await verify_tier_for_user(user_address)
 
-            if current_tier in SUBSCRIPTION_PLANS:
-                # Verify if the user still meets the requirements for their current tier
-                tier, meets_requirements = await verify_tier_for_user(user_address)
-                
-                if meets_requirements and tier == current_tier:
-                    # User still qualifies for their current tier
-                    new_image_count = SUBSCRIPTION_PLANS[current_tier]['images_per_month']
-                    new_video_count = SUBSCRIPTION_PLANS[current_tier]['videos_per_month']
-                    pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                    pipe.set(f"{user_prefix}videos_left", str(new_video_count))
-                    logging.info(f"Reset limits for user: {user_address}, maintaining tier: {current_tier}, images: {new_image_count}, videos: {new_video_count}")
-                else:
-                    # User's tier has changed, perform full verification
-                    if meets_requirements and tier in SUBSCRIPTION_PLANS:
-                        new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
-                        new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
-                        pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                        pipe.set(f"{user_prefix}videos_left", str(new_video_count))
-                        pipe.set(f"{user_prefix}tier", tier)
-                        logging.info(f"Updated tier for user: {user_address}, new tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
-                    else:
-                        # User no longer meets requirements for any tier
-                        pipe.set(f"{user_prefix}images_left", '0')
-                        pipe.set(f"{user_prefix}videos_left", '0')
-                        pipe.set(f"{user_prefix}tier", 'None')
-                        logging.info(f"User {user_address} no longer meets tier requirements. Set counts to 0.")
+            if meets_requirements and tier == current_tier:
+                # User still qualifies for their current tier
+                new_image_count = SUBSCRIPTION_PLANS[current_tier]['images_per_month']
+                new_video_count = SUBSCRIPTION_PLANS[current_tier]['videos_per_month']
+                pipe.set(f"{user_prefix}images_left", str(new_image_count))
+                pipe.set(f"{user_prefix}videos_left", str(new_video_count))
+                logging.info(f"Reset limits for user: {user_address}, maintaining tier: {current_tier}, images: {new_image_count}, videos: {new_video_count}")
+            elif meets_requirements and tier in SUBSCRIPTION_PLANS:
+                # User's tier has changed (upgraded or downgraded)
+                new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
+                new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
+                pipe.set(f"{user_prefix}images_left", str(new_image_count))
+                pipe.set(f"{user_prefix}videos_left", str(new_video_count))
+                pipe.set(f"{user_prefix}tier", tier)
+                logging.info(f"Updated tier for user: {user_address}, new tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
             else:
-                # Check if user now qualifies for a tier
-                tier, meets_requirements = await verify_tier_for_user(user_address)
-                if meets_requirements and tier in SUBSCRIPTION_PLANS:
-                    new_image_count = SUBSCRIPTION_PLANS[tier]['images_per_month']
-                    new_video_count = SUBSCRIPTION_PLANS[tier]['videos_per_month']
-                    pipe.set(f"{user_prefix}images_left", str(new_image_count))
-                    pipe.set(f"{user_prefix}videos_left", str(new_video_count))
-                    pipe.set(f"{user_prefix}tier", tier)
-                    logging.info(f"User {user_address} now qualifies for tier: {tier}, images: {new_image_count}, videos: {new_video_count}")
-                else:
-                    pipe.set(f"{user_prefix}images_left", '0')
-                    pipe.set(f"{user_prefix}videos_left", '0')
-                    pipe.set(f"{user_prefix}tier", 'None')
-                    logging.info(f"No active tier or free trial for user: {user_address}. Set counts to 0.")
-            
+                # User no longer meets requirements for any tier
+                pipe.set(f"{user_prefix}images_left", '0')
+                pipe.set(f"{user_prefix}videos_left", '0')
+                pipe.set(f"{user_prefix}tier", 'None')
+                logging.info(f"User {user_address} no longer meets tier requirements. Set counts to 0.")
+
             pipe.set(f"{user_prefix}last_reset", str(datetime.now().timestamp()))
         
         # Execute all commands in the pipeline
