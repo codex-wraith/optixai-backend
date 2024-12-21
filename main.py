@@ -39,7 +39,7 @@ if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
-GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
+GLOBAL_TRIAL_START_DATE = datetime(2024, 12, 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
 TRIAL_IMAGE_COUNT = 50
@@ -1226,83 +1226,103 @@ async def is_free_trial_active(user_address=None):
 
 
 
-async def get_or_initialize_user_data(user_prefix, free_trial_active, user_address, decrement_images=False, decrement_videos=False):
+async def get_or_initialize_user_data(
+    user_prefix,
+    free_trial_active,
+    user_address,
+    decrement_images=False,
+    decrement_videos=False
+):
     app.logger.info(f"Initializing/getting data for user {user_address}. Free trial active: {free_trial_active}")
     
     if is_whitelisted(user_address):
         app.logger.info(f"User {user_address} is whitelisted")
         return UNLIMITED_IMAGES, UNLIMITED_VIDEOS, 'Unlimited'
     
+    # Retrieve user data from Redis
     user_initialized = await app.redis_client.get(f"{user_prefix}initialized")
     images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
     videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
     tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
     free_trial_override = await app.redis_client.get(f"{user_prefix}free_trial_override") or 'False'
-
+    
     app.logger.info(f"Initial state for {user_address}: initialized={user_initialized}, images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}, free_trial_override={free_trial_override}")
 
+    # Verify the user's actual tier based on their token holdings
+    actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
+    
     if free_trial_active and free_trial_override != 'True':
         app.logger.info(f"Free trial is active for {user_address}")
-        if not user_initialized:
-            # Only set trial counts on first initialization
+        if not user_initialized or tier_status != 'Free Trial':
+            # Set trial counts during first initialization or if tier has changed
             _, _, trial_images, trial_videos = await is_free_trial_active(user_address)
             images_left = trial_images
             videos_left = trial_videos
             tier_status = 'Free Trial'
             app.logger.info(f"Initializing trial user with {images_left} images and {videos_left} videos")
-        elif tier_status == 'Free Trial':
+            await app.redis_client.set(f"{user_prefix}initialized", 'True')
+            await app.redis_client.set(f"{user_prefix}tier", tier_status)
+            await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+            await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+        else:
             # Keep existing counts for trial users
-            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
-            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
-            app.logger.info(f"Using existing trial counts: {images_left} images and {videos_left} videos")
-    elif not user_initialized:
-        app.logger.info(f"Initializing non-free trial user {user_address}")
-        actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
-        if meets_requirements:
+            app.logger.info(f"Using existing trial counts for {user_address}: {images_left} images and {videos_left} videos")
+    else:
+        # Non-free trial user
+        if not user_initialized or tier_status != actual_tier_status:
+            app.logger.info(f"Initializing or updating user {user_address}. Previous tier: {tier_status}, New tier: {actual_tier_status}")
             tier_status = actual_tier_status
-            if tier_status in SUBSCRIPTION_PLANS:
+            if meets_requirements and tier_status in SUBSCRIPTION_PLANS:
                 images_left = SUBSCRIPTION_PLANS[tier_status]['images_per_month']
                 videos_left = SUBSCRIPTION_PLANS[tier_status]['videos_per_month']
+                app.logger.info(f"User {user_address} assigned to tier {tier_status} with {images_left} images and {videos_left} videos per month")
             else:
+                tier_status = 'None'
                 images_left = 0
                 videos_left = 0
+                app.logger.info(f"User {user_address} does not meet any tier requirements. Set counts to 0.")
+            # Update Redis values
+            await app.redis_client.set(f"{user_prefix}initialized", 'True')
+            await app.redis_client.set(f"{user_prefix}tier", tier_status)
+            await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+            await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
         else:
-            tier_status = 'None'
-            images_left = 0
-            videos_left = 0
-        app.logger.info(f"Non-free trial user {user_address} initialized with tier {tier_status}, {images_left} images, and {videos_left} videos")
-
-    if not user_initialized:
-        await app.redis_client.set(f"{user_prefix}initialized", 'True')
-        await app.redis_client.set(f"{user_prefix}tier", tier_status)
-        await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
-        await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
-        app.logger.info(f"User {user_address} marked as initialized with {images_left} images and {videos_left} videos")
-
+            app.logger.info(f"User {user_address} is already initialized with tier {tier_status}. No tier change detected.")
+            # No updates needed; counts remain the same
+    
     # Handle image decrement
-    if decrement_images and images_left > 0:
-        images_left -= 1
-        await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
-        app.logger.info(f"Decremented images for {user_address}. New count: {images_left}")
-
+    if decrement_images:
+        if images_left > 0 or images_left == UNLIMITED_IMAGES:
+            if images_left != UNLIMITED_IMAGES:
+                images_left -= 1
+                await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+            app.logger.info(f"Decremented images for {user_address}. New count: {images_left}")
+        else:
+            app.logger.warning(f"User {user_address} has no images left to decrement.")
+            raise ValueError("No images left to use")
+    
     # Handle video decrement
-    if decrement_videos and videos_left > 0:
-        # Check if user has video access based on tier
+    if decrement_videos:
         has_video_access = (
             tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
             free_trial_active
         )
-        
         if has_video_access:
-            videos_left -= 1
-            await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
-            app.logger.info(f"Decremented videos for {user_address}. New count: {videos_left}")
+            if videos_left > 0 or videos_left == UNLIMITED_VIDEOS:
+                if videos_left != UNLIMITED_VIDEOS:
+                    videos_left -= 1
+                    await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+                app.logger.info(f"Decremented videos for {user_address}. New count: {videos_left}")
+            else:
+                app.logger.warning(f"User {user_address} has no videos left to decrement.")
+                raise ValueError("No video generations left")
         else:
             app.logger.warning(f"User {user_address} attempted to use video generation without proper access")
-            raise ValueError("Video generation requires Tier 2 or higher subscription")
-
+            raise ValueError("Video generation requires Pixl Fusion tier or higher subscription")
+    
     app.logger.info(f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}")
     return images_left, videos_left, tier_status
+
 
 
 
