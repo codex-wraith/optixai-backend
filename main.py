@@ -71,7 +71,7 @@ SUBSCRIPTION_PLANS = {
     'Pixl Ultra': {
         'percentage': Decimal('0.4'),  # Should be higher than Pixl Realism
         'images_per_month': 2000,
-        'videos_per_month': 1000
+        'videos_per_month': 500
     }
 }
 app = Quart(__name__)
