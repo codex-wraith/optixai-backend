@@ -386,7 +386,7 @@ async def user_session():
             hasVideoAccess=True,
             hasUltraAccess=True
         )
-    
+
     # Ensure Redis client is initialized
     if not app.redis_client:
         app.redis_client = await create_redis_client()
@@ -395,12 +395,14 @@ async def user_session():
     free_trial_active, remaining_time, trial_image_count, trial_video_count = await is_free_trial_active(user_address)
 
     if request.method == 'POST':
-        images_left, videos_left, tier_status = await get_or_initialize_user_data(user_prefix, free_trial_active, user_address)
+        images_left, videos_left, tier_status = await get_or_initialize_user_data(
+            user_prefix, free_trial_active, user_address
+        )
         if images_left is None:
             return jsonify({'error': 'No images left to use'}), 400
 
         actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
-        
+
         if actual_tier_status != 'None' and meets_requirements and free_trial_active:
             await app.redis_client.set(f"user_{user_address}_free_trial_override", 'False')
             free_trial_active = False
@@ -420,27 +422,34 @@ async def user_session():
 
     else:
         # GET request handling
+        actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
         tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
-        
-        if free_trial_active:
-            if tier_status == 'None' or tier_status == 'Free Trial':
-                tier_status = 'Free Trial'
-                # Initialize counts if they don't exist
-                if not await app.redis_client.exists(f"{user_prefix}images_left"):
-                    await app.redis_client.set(f"{user_prefix}images_left", str(trial_image_count))
-                if not await app.redis_client.exists(f"{user_prefix}videos_left"):
-                    await app.redis_client.set(f"{user_prefix}videos_left", str(trial_video_count))
-                
-            # Always get the current counts from Redis
-            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or trial_image_count)
-            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or trial_video_count)
+
+        if tier_status != actual_tier_status:
+            # Tier has changed, update counts
+            images_left, videos_left, tier_status = await get_or_initialize_user_data(
+                user_prefix, free_trial_active, user_address
+            )
         else:
-            # Non-trial user
-            images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
-            videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
+            if free_trial_active:
+                if tier_status == 'None' or tier_status == 'Free Trial':
+                    tier_status = 'Free Trial'
+                    # Initialize counts if they don't exist
+                    if not await app.redis_client.exists(f"{user_prefix}images_left"):
+                        await app.redis_client.set(f"{user_prefix}images_left", str(trial_image_count))
+                    if not await app.redis_client.exists(f"{user_prefix}videos_left"):
+                        await app.redis_client.set(f"{user_prefix}videos_left", str(trial_video_count))
+
+                # Always get the current counts from Redis
+                images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or trial_image_count)
+                videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or trial_video_count)
+            else:
+                # Non-trial user
+                images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
+                videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
 
     # Update available upgrades logic
-    all_tiers = ['Pixl Art', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] 
+    all_tiers = ['Pixl Art', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
     else:
@@ -452,8 +461,8 @@ async def user_session():
 
     # Determine video access based on tier
     has_video_access = (
-        is_whitelisted(user_address) or 
-        free_trial_active or 
+        is_whitelisted(user_address) or
+        free_trial_active or
         tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
     )
 
@@ -477,6 +486,7 @@ async def user_session():
         hasUltraAccess=has_ultra_access,
         hasVideoAccess=has_video_access
     )
+
 
 
 @app.route('/trial-status', methods=['GET', 'OPTIONS'])
@@ -1234,26 +1244,42 @@ async def get_or_initialize_user_data(
     decrement_videos=False
 ):
     app.logger.info(f"Initializing/getting data for user {user_address}. Free trial active: {free_trial_active}")
-    
+
     if is_whitelisted(user_address):
         app.logger.info(f"User {user_address} is whitelisted")
         return UNLIMITED_IMAGES, UNLIMITED_VIDEOS, 'Unlimited'
-    
+
     # Retrieve user data from Redis
     user_initialized = await app.redis_client.get(f"{user_prefix}initialized")
     images_left = int(await app.redis_client.get(f"{user_prefix}images_left") or 0)
     videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
     tier_status = await app.redis_client.get(f"{user_prefix}tier") or 'None'
     free_trial_override = await app.redis_client.get(f"{user_prefix}free_trial_override") or 'False'
-    
-    app.logger.info(f"Initial state for {user_address}: initialized={user_initialized}, images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}, free_trial_override={free_trial_override}")
+
+    app.logger.info(
+        f"Initial state for {user_address}: initialized={user_initialized}, "
+        f"images_left={images_left}, videos_left={videos_left}, "
+        f"tier_status={tier_status}, free_trial_override={free_trial_override}"
+    )
 
     # Verify the user's actual tier based on their token holdings
     actual_tier_status, meets_requirements = await verify_tier_for_user(user_address)
-    
+    previous_tier_status = tier_status
+    tier_status = actual_tier_status  # Update tier_status to the actual tier
+
+    # Check if the tier has changed
+    tier_changed = previous_tier_status != tier_status
+
+    # Get the images and videos per month for previous and current tiers
+    previous_images_total = SUBSCRIPTION_PLANS.get(previous_tier_status, {}).get('images_per_month', 0)
+    previous_videos_total = SUBSCRIPTION_PLANS.get(previous_tier_status, {}).get('videos_per_month', 0)
+    current_images_total = SUBSCRIPTION_PLANS.get(tier_status, {}).get('images_per_month', 0)
+    current_videos_total = SUBSCRIPTION_PLANS.get(tier_status, {}).get('videos_per_month', 0)
+
     if free_trial_active and free_trial_override != 'True':
+        # Handle free trial logic
         app.logger.info(f"Free trial is active for {user_address}")
-        if not user_initialized or tier_status != 'Free Trial':
+        if not user_initialized or previous_tier_status != 'Free Trial':
             # Set trial counts during first initialization or if tier has changed
             _, _, trial_images, trial_videos = await is_free_trial_active(user_address)
             images_left = trial_images
@@ -1269,42 +1295,52 @@ async def get_or_initialize_user_data(
             app.logger.info(f"Using existing trial counts for {user_address}: {images_left} images and {videos_left} videos")
     else:
         # Non-free trial user
-        if not user_initialized or tier_status != actual_tier_status:
-            app.logger.info(f"Initializing or updating user {user_address}. Previous tier: {tier_status}, New tier: {actual_tier_status}")
-            tier_status = actual_tier_status
-            if meets_requirements and tier_status in SUBSCRIPTION_PLANS:
-                images_left = SUBSCRIPTION_PLANS[tier_status]['images_per_month']
-                videos_left = SUBSCRIPTION_PLANS[tier_status]['videos_per_month']
-                app.logger.info(f"User {user_address} assigned to tier {tier_status} with {images_left} images and {videos_left} videos per month")
-            else:
-                tier_status = 'None'
-                images_left = 0
-                videos_left = 0
-                app.logger.info(f"User {user_address} does not meet any tier requirements. Set counts to 0.")
-            # Update Redis values
+        if not user_initialized:
+            # First time initialization
+            images_left = current_images_total
+            videos_left = current_videos_total
             await app.redis_client.set(f"{user_prefix}initialized", 'True')
-            await app.redis_client.set(f"{user_prefix}tier", tier_status)
             await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
             await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+            await app.redis_client.set(f"{user_prefix}tier", tier_status)
+            app.logger.info(f"Initialized new user {user_address} with tier {tier_status}, images_left={images_left}, videos_left={videos_left}")
+        elif tier_changed:
+            # Adjust counts based on new tier
+            app.logger.info(f"Tier changed for user {user_address} from {previous_tier_status} to {tier_status}")
+            # Calculate images and videos used so far
+            images_used = previous_images_total - images_left
+            videos_used = previous_videos_total - videos_left
+
+            app.logger.info(f"User {user_address} has used {images_used} images and {videos_used} videos so far")
+
+            # Calculate new images_left and videos_left
+            images_left = max(current_images_total - images_used, 0)
+            videos_left = max(current_videos_total - videos_used, 0)
+
+            await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
+            await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
+            await app.redis_client.set(f"{user_prefix}tier", tier_status)
+            app.logger.info(
+                f"Adjusted counts for {user_address}: images_left={images_left}, videos_left={videos_left}"
+            )
         else:
-            app.logger.info(f"User {user_address} is already initialized with tier {tier_status}. No tier change detected.")
-            # No updates needed; counts remain the same
-    
+            app.logger.info(f"No tier change for {user_address}. Counts remain the same.")
+
     # Handle image decrement
     if decrement_images:
         if images_left > 0 or images_left == UNLIMITED_IMAGES:
             if images_left != UNLIMITED_IMAGES:
                 images_left -= 1
                 await app.redis_client.set(f"{user_prefix}images_left", str(images_left))
-            app.logger.info(f"Decremented images for {user_address}. New count: {images_left}")
+            app.logger.info(f"Decremented images for {user_address}. New images_left: {images_left}")
         else:
             app.logger.warning(f"User {user_address} has no images left to decrement.")
             raise ValueError("No images left to use")
-    
+
     # Handle video decrement
     if decrement_videos:
         has_video_access = (
-            tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
+            tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or
             free_trial_active
         )
         if has_video_access:
@@ -1312,20 +1348,20 @@ async def get_or_initialize_user_data(
                 if videos_left != UNLIMITED_VIDEOS:
                     videos_left -= 1
                     await app.redis_client.set(f"{user_prefix}videos_left", str(videos_left))
-                app.logger.info(f"Decremented videos for {user_address}. New count: {videos_left}")
+                app.logger.info(f"Decremented videos for {user_address}. New videos_left: {videos_left}")
             else:
                 app.logger.warning(f"User {user_address} has no videos left to decrement.")
                 raise ValueError("No video generations left")
         else:
-            app.logger.warning(f"User {user_address} attempted to use video generation without proper access")
+            app.logger.warning(
+                f"User {user_address} attempted to use video generation without proper access"
+            )
             raise ValueError("Video generation requires Pixl Fusion tier or higher subscription")
-    
-    app.logger.info(f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}")
+
+    app.logger.info(
+        f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}"
+    )
     return images_left, videos_left, tier_status
-
-
-
-
 
 async def reset_monthly_counts():
     logging.info("Starting monthly image and video count reset")
