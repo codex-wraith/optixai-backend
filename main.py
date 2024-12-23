@@ -457,7 +457,7 @@ async def user_session():
         available_upgrades = [tier for tier in all_tiers if tier not in current_tiers]
 
     # Add Ultra access flag
-    has_ultra_access = tier_status == 'Optix Master' or is_whitelisted(user_address)
+    has_ultra_access = tier_status == 'Optix Elite' or is_whitelisted(user_address)
 
     # Determine video access based on tier
     has_video_access = (
@@ -533,7 +533,7 @@ async def generate_video():
 
             # Check if user has video access based on tier
             has_video_access = (
-                tier_status in ['Optix Blend', 'Optix Pro', 'Optix Master'] or 
+                tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite'] or 
                 free_trial_active
             )
 
