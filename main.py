@@ -79,7 +79,7 @@ app.secret_key = os.environ.get('SECRET_KEY')
 app.config['SESSION_TYPE'] = 'redis'
 app.config['SESSION_REDIS'] = Redis.from_url(os.environ.get('REDISCLOUD_URL'))
 cors(app,
-     allow_origin=['https://www.optixai.io', 'https://optixai.io', 'https://optixai.webflow.io/', 'https://optixai.github.io/optixaiui'],
+     allow_origin=['https://www.optixai.io', 'https://optixai.io', 'https://optixai.webflow.io', 'https://optixai.github.io/optixaiui'],
      allow_methods=['GET', 'POST', 'OPTIONS'],
      allow_headers=['Content-Type', 'User-Address'],
      expose_headers=['Content-Type', 'User-Address'],
@@ -622,7 +622,7 @@ async def get_video_progress(prediction_id):
     try:
         if prediction_id not in predictions:
             response = await make_response(jsonify({'error': 'Prediction not found'}), 404)
-            response.headers['Access-Control-Allow-Origin'] = 'https://www.optixai.io, https://optixai.io, https://optixai.webflow.io/, https://optixai.github.io/optixaiui/'
+            response.headers['Access-Control-Allow-Origin'] = 'https://www.optixai.io, https://optixai.io, https://optixai.webflow.io, https://optixai.github.io/optixaiui'
             return response
 
         prediction = predictions[prediction_id]
