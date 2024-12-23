@@ -46,30 +46,30 @@ TRIAL_IMAGE_COUNT = 50
 TRIAL_VIDEO_COUNT = 25 
 predictions = {}
 WHITELISTED_ADDRESSES = [
-    "0x9F28b4b07aB6e08462Ec89e10a10C6dE73D59793",  
+    "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0xB48B371E4C6Af3ec298AdF6Dd32dec80a3Bffa09",
     "0x3fF749371f64526DCf706c10892663F374c61bD5"
 ]
 SUBSCRIPTION_PLANS = {
-    'Pixl Art': {
-        'percentage': Decimal('0.1'), 
+    'Optix Core': {
+        'percentage': Decimal('1.0'), 
         'images_per_month': 100,
         'videos_per_month': 0  # No video access for Tier 1
     },
-    'Pixl Fusion': {
-        'percentage': Decimal('0.2'), 
+    'Optix Blend': {
+        'percentage': Decimal('1.5'), 
         'images_per_month': 500,
         'videos_per_month': 250
     },
-    'Pixl Realism': {
-        'percentage': Decimal('0.3'), 
+    'Optix Pro': {
+        'percentage': Decimal('2.0'), 
         'images_per_month': 1000,
         'videos_per_month': 500
     },
-    'Pixl Ultra': {
-        'percentage': Decimal('0.4'),  # Should be higher than Pixl Realism
+    'Optix Elite': {
+        'percentage': Decimal('2.5'),  
         'images_per_month': 2000,
         'videos_per_month': 500
     }
@@ -79,7 +79,7 @@ app.secret_key = os.environ.get('SECRET_KEY')
 app.config['SESSION_TYPE'] = 'redis'
 app.config['SESSION_REDIS'] = Redis.from_url(os.environ.get('REDISCLOUD_URL'))
 cors(app,
-     allow_origin=['https://www.pixl-ai.io', 'https://pixl-ai.io', 'https://pixl-ai-io.github.io/bundles', 'https://pixl-ai-07c92c.webflow.io'],
+     allow_origin=['https://www.optixai.io', 'https://optixai.io', 'https://optixai.webflow.io/'],
      allow_methods=['GET', 'POST', 'OPTIONS'],
      allow_headers=['Content-Type', 'User-Address'],
      expose_headers=['Content-Type', 'User-Address'],
@@ -201,11 +201,11 @@ async def tiers_info():
                 'imagesPerMonth': plan['images_per_month'],
                 'videosPerMonth': plan['videos_per_month'],
                 'hasVideoAccess': plan['videos_per_month'] > 0,
-                'isUltraTier': tier == 'Pixl Ultra',
+                'isUltraTier': tier == 'Optix Elite',
                 'features': {
                     'imageGeneration': True,
                     'videoGeneration': plan['videos_per_month'] > 0,
-                    'ultraQuality': tier == 'Pixl Ultra' or tier == 'Pixl Realism'
+                    'ultraQuality': tier == 'Optix Elite' or tier == 'Optix Pro'
                 }
             }
         
@@ -213,7 +213,7 @@ async def tiers_info():
             'success': True,
             'totalSupply': float(total_supply_adjusted),
             'tiers': tiers_info,
-            'videoTierMinimum': 'Pixl Fusion'  # Indicates minimum tier for video access
+            'videoTierMinimum': 'Optix Blend'  # Indicates minimum tier for video access
         })
     except Exception as e:
         logging.error(f"Error fetching tiers info: {str(e)}")
@@ -449,7 +449,7 @@ async def user_session():
                 videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
 
     # Update available upgrades logic
-    all_tiers = ['Pixl Art', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
+    all_tiers = ['Optix Core', 'Optix Blend', 'Optix Pro', 'Optix Elite']
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
     else:
@@ -457,13 +457,13 @@ async def user_session():
         available_upgrades = [tier for tier in all_tiers if tier not in current_tiers]
 
     # Add Ultra access flag
-    has_ultra_access = tier_status == 'Pixl Ultra' or is_whitelisted(user_address)
+    has_ultra_access = tier_status == 'Optix Master' or is_whitelisted(user_address)
 
     # Determine video access based on tier
     has_video_access = (
         is_whitelisted(user_address) or
         free_trial_active or
-        tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']
+        tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite']
     )
 
     # Get video limit based on tier
@@ -533,7 +533,7 @@ async def generate_video():
 
             # Check if user has video access based on tier
             has_video_access = (
-                tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or 
+                tier_status in ['Optix Blend', 'Optix Pro', 'Optix Master'] or 
                 free_trial_active
             )
 
@@ -622,7 +622,7 @@ async def get_video_progress(prediction_id):
     try:
         if prediction_id not in predictions:
             response = await make_response(jsonify({'error': 'Prediction not found'}), 404)
-            response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+            response.headers['Access-Control-Allow-Origin'] = 'https://www.optixai.io, https://optixai.io, https://optixai.webflow.io/'
             return response
 
         prediction = predictions[prediction_id]
@@ -670,7 +670,7 @@ async def get_video_progress(prediction_id):
         }
 
         response = await make_response(jsonify(response_data))
-        response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+        response.headers['Access-Control-Allow-Origin'] = 'https://www.optixai.io, https://optixai.io, https://optixai.webflow.io/'
         return response
 
     except Exception as e:
@@ -683,7 +683,7 @@ async def get_video_progress(prediction_id):
             }), 
             503
         )
-        error_response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+        error_response.headers['Access-Control-Allow-Origin'] = 'https://www.optixai.io, https://optixai.io, https://optixai.webflow.io/'
         return error_response
 
 
@@ -730,32 +730,32 @@ async def generate_content():
             # Whitelisted users can use any tier
             if data.get('tier4Prompt'):
                 prompt_used = data['tier4Prompt']
-                tier_used = 'Pixl Ultra'
+                tier_used = 'Optix Elite'
                 model_version = "black-forest-labs/flux-1.1-pro-ultra"
             elif data.get('tier3Prompt'):
                 prompt_used = data['tier3Prompt']
-                tier_used = 'Pixl Realism'
+                tier_used = 'Optix Pro'
             elif data.get('tier2Prompt'):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Pixl Fusion'
+                tier_used = 'Optix Blend'
             elif data.get('tier1Prompt'):
                 prompt_used = data['tier1Prompt']
-                tier_used = 'Pixl Art'
+                tier_used = 'Optix Core'
         else:
             # Non-whitelisted users follow regular tier logic
-            if data.get('tier4Prompt') and (tier_status == 'Pixl Ultra' or free_trial_active):
+            if data.get('tier4Prompt') and (tier_status == 'Optix Elite' or free_trial_active):
                 prompt_used = data['tier4Prompt']
-                tier_used = 'Pixl Ultra'
+                tier_used = 'Optix Elite'
                 model_version = "black-forest-labs/flux-1.1-pro-ultra"
-            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Pixl Realism', 'Pixl Ultra']):
+            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Optix Pro', 'Optix Elite']):
                 prompt_used = data['tier3Prompt']
-                tier_used = 'Pixl Realism'
-            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']):
+                tier_used = 'Optix Pro'
+            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite']):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Pixl Fusion'
-            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Pixl Art', 'Pixl Fusion', 'Pixl Realism', 'Pixl Ultra']):
+                tier_used = 'Optix Blend'
+            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Optix Core', 'Optix Blend', 'Optix Pro', 'Optix Elite']):
                 prompt_used = data['tier1Prompt']
-                tier_used = 'Pixl Art'
+                tier_used = 'Optix Core'
 
         if not prompt_used:
             app.logger.error(f"No valid prompt - User: {user_address}, Prompts received: {[k for k in data.keys() if 'Prompt' in k]}")
@@ -764,7 +764,7 @@ async def generate_content():
         logging.info(f"Original prompt ({tier_used}): {prompt_used}")
 
         prompts = {
-            'Pixl Art': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
+            'Optix Core': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Emphasizes classic pixel art aesthetics and charm
             - Incorporates playful cartoon-style elements
@@ -776,7 +776,7 @@ async def generate_content():
             - Realistic or photographic elements
             Present the output as one comprehensive, descriptive sentence that naturally blends pixel art and cartoon elements.""",
 
-            'Pixl Fusion': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
+            'Optix Blend': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Specifies elements to be rendered in pixel art style
             - Describes photorealistic details
@@ -788,7 +788,7 @@ async def generate_content():
             - References to UI elements or non-artistic components
             Present the output as one comprehensive, descriptive sentence without separating pixel and realistic elements.""",
 
-            'Pixl Realism': f"""Enhance this prompt for a photorealistic image with subtle artistic touches: '{prompt_used}'
+            'Optix Pro': f"""Enhance this prompt for a photorealistic image with subtle artistic touches: '{prompt_used}'
             Craft a single, detailed prompt that includes:
             - Specific lighting details (direction, intensity, color)
             - Subtle artistic textures that maintain realism
@@ -799,7 +799,7 @@ async def generate_content():
             - Avoid mentioning non-photorealistic or obvious digital effects
             Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances.""",
 
-            'Pixl Ultra': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
+            'Optix Elite': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
             Craft a single, detailed prompt that includes:
             - Photorealistic lighting and atmospheric conditions
             - Intricate textures and surface details
@@ -1181,7 +1181,7 @@ async def generate_text(prompt):
 async def handle_options_request():
     """Handle OPTIONS request for CORS."""
     response = await make_response('', 204)
-    response.headers['Access-Control-Allow-Origin'] = 'https://www.pixl-ai.io, https://pixl-ai.io, https://pixl-ai-io.github.io/bundles, https://pixl-ai-07c92c.webflow.io'
+    response.headers['Access-Control-Allow-Origin'] = 'https://www.optixai.io, https://optixai.io, https://optixai.webflow.io/'
     response.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, User-Address'
     return response
@@ -1340,7 +1340,7 @@ async def get_or_initialize_user_data(
     # Handle video decrement
     if decrement_videos:
         has_video_access = (
-            tier_status in ['Pixl Fusion', 'Pixl Realism', 'Pixl Ultra'] or
+            tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite'] or
             free_trial_active
         )
         if has_video_access:
@@ -1356,7 +1356,7 @@ async def get_or_initialize_user_data(
             app.logger.warning(
                 f"User {user_address} attempted to use video generation without proper access"
             )
-            raise ValueError("Video generation requires Pixl Fusion tier or higher subscription")
+            raise ValueError("Video generation requires Optix Blend tier or higher subscription")
 
     app.logger.info(
         f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}"
