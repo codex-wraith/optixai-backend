@@ -172,11 +172,11 @@ async def get_description():
         return await handle_options_request()
 
     description = (
-        "Welcome to Pixl AI! Connect your wallet using email or providers like MetaMask to access our powerful AI generation tools. "
-        "Create unique images in multiple styles - from pixel art to ultra-realistic renders. "
-        "With Pixl Fusion and above, unlock video generation to create dynamic animations from text prompts or transform your AI-generated images into stunning videos."
+        "Connect your wallet to access OptixAI's advanced image and video generation. "
+        "Create stunning visuals with our AI tools, and unlock video generation to bring your creations to life."
     )
     return jsonify({'description': description})
+
 
 
 
