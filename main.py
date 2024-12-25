@@ -54,22 +54,22 @@ WHITELISTED_ADDRESSES = [
 ]
 SUBSCRIPTION_PLANS = {
     'Optix Core': {
-        'percentage': Decimal('1.0'), 
+        'percentage': Decimal('2.5'), 
         'images_per_month': 100,
         'videos_per_month': 0  # No video access for Tier 1
     },
     'Optix Blend': {
-        'percentage': Decimal('1.5'), 
+        'percentage': Decimal('3.0'), 
         'images_per_month': 500,
         'videos_per_month': 250
     },
     'Optix Pro': {
-        'percentage': Decimal('2.0'), 
+        'percentage': Decimal('3.5'), 
         'images_per_month': 1000,
         'videos_per_month': 500
     },
     'Optix Elite': {
-        'percentage': Decimal('2.5'),  
+        'percentage': Decimal('4.0'),  
         'images_per_month': 2000,
         'videos_per_month': 500
     }
