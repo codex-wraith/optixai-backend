@@ -1,5 +1,6 @@
 from quart import Quart, jsonify, request, make_response, current_app
 from quart_cors import cors
+from moralis import evm_api
 import aiohttp
 import tempfile
 import aiofiles
@@ -29,6 +30,9 @@ if not INFURA_API_KEY:
 ZRX_API_KEY = os.getenv('ZRX_API_KEY')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+MORALIS_API_KEY = os.getenv('MORALIS_API_KEY')
+if not MORALIS_API_KEY:
+    raise EnvironmentError("MORALIS_API_KEY not set in environment variables")
 STABILITY_API_KEY = os.getenv('STABILITY_API_KEY')
 if not GOOGLE_API_KEY or not OPENAI_API_KEY:
     raise EnvironmentError("Missing API keys. Please set GOOGLE_API_KEY and OPENAI_API_KEY.")
@@ -54,24 +58,40 @@ WHITELISTED_ADDRESSES = [
 ]
 SUBSCRIPTION_PLANS = {
     'Optix Core': {
-        'percentage': Decimal('2.5'), 
         'images_per_month': 100,
         'videos_per_month': 0  # No video access for Tier 1
     },
     'Optix Blend': {
-        'percentage': Decimal('3.0'), 
         'images_per_month': 500,
         'videos_per_month': 250
     },
     'Optix Pro': {
-        'percentage': Decimal('3.5'), 
         'images_per_month': 1000,
         'videos_per_month': 500
     },
     'Optix Elite': {
-        'percentage': Decimal('4.0'),  
         'images_per_month': 2000,
         'videos_per_month': 500
+    }
+}
+PHASE_TIER_PERCENTAGES = {
+    'Initial': {  # Under $1M
+        'Optix Core': Decimal('2.5'),
+        'Optix Blend': Decimal('3.0'),
+        'Optix Pro':   Decimal('3.5'),
+        'Optix Elite': Decimal('4.0')
+    },
+    'Growth': {   # $1M - $5M
+        'Optix Core': Decimal('1.25'),
+        'Optix Blend': Decimal('1.5'),
+        'Optix Pro':   Decimal('1.75'),
+        'Optix Elite': Decimal('2.0')
+    },
+    'Established': {  # Above $5M
+        'Optix Core': Decimal('0.5'),
+        'Optix Blend': Decimal('0.75'),
+        'Optix Pro':   Decimal('1.0'),
+        'Optix Elite': Decimal('1.25')
     }
 }
 app = Quart(__name__)
@@ -178,22 +198,32 @@ async def get_description():
     return jsonify({'description': description})
 
 
-
-
 @app.route('/tiers-info', methods=['GET', 'OPTIONS'])
 async def tiers_info():
     if request.method == 'OPTIONS':
         return await handle_options_request()
     
     try:
+        # Get token supply info
         contract = get_token_contract()
         total_supply = contract.functions.totalSupply().call()
         token_decimals = contract.functions.decimals().call()
         total_supply_adjusted = Decimal(total_supply) / Decimal(10 ** token_decimals)
         
+        # Get current market cap from cache
+        cap_str = await app.redis_client.get("moralis_market_cap")
+        if not cap_str:
+            # If cache missing, trigger update
+            await update_moralis_price_job()
+            cap_str = await app.redis_client.get("moralis_market_cap")
+        
+        market_cap = Decimal(cap_str)
+        current_phase = get_current_phase(market_cap)
+        current_percentages = PHASE_TIER_PERCENTAGES[current_phase]
+        
         tiers_info = {}
         for tier, plan in SUBSCRIPTION_PLANS.items():
-            percentage = plan['percentage']
+            percentage = current_percentages[tier]  # Get dynamic percentage based on phase
             tokens_required = (percentage / Decimal(100)) * total_supply_adjusted
             tiers_info[tier] = {
                 'percentage': float(percentage),
@@ -205,7 +235,7 @@ async def tiers_info():
                 'features': {
                     'imageGeneration': True,
                     'videoGeneration': plan['videos_per_month'] > 0,
-                    'ultraQuality': tier == 'Optix Elite' or tier == 'Optix Pro'
+                    'ultraQuality': tier == 'Optix Elite'
                 }
             }
         
@@ -213,12 +243,12 @@ async def tiers_info():
             'success': True,
             'totalSupply': float(total_supply_adjusted),
             'tiers': tiers_info,
-            'videoTierMinimum': 'Optix Blend'  # Indicates minimum tier for video access
+            'videoTierMinimum': 'Optix Blend',  # Indicates minimum tier for video access
+            'currentPhase': current_phase  # Optionally include phase info
         })
     except Exception as e:
         logging.error(f"Error fetching tiers info: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 
 @app.route('/check-whitelist', methods=['GET', 'OPTIONS'])
@@ -959,29 +989,57 @@ async def generate_content():
 
 
 async def verify_tier_for_user(user_address):
+    """
+    Determines which tier the user qualifies for, using the cached Moralis price 
+    and dynamic PHASE_TIER_PERCENTAGES. 
+    """
     if is_whitelisted(user_address):
         return 'Unlimited', True
 
     try:
+        # 1) Get the user’s % of total supply
         checksum_address = Web3.to_checksum_address(user_address)
-        percentage_held, _ = verify_user_holdings(checksum_address)
-        
-        # Sort tiers by percentage in descending order
+        percentage_held, total_supply_adjusted = verify_user_holdings(checksum_address)
+
+        # 2) Read cached price & market cap from Redis
+        price_str = await app.redis_client.get("moralis_usd_price")
+        cap_str = await app.redis_client.get("moralis_market_cap")
+
+        # If absent, you can fetch directly OR treat user as 'None'
+        if not price_str or not cap_str:
+            logging.warning("[verify_tier_for_user] No cached Moralis price found, fallback to direct fetch.")
+            # (A) Fallback to direct fetch:
+            usd_price_per_token = get_token_price_from_moralis()
+            market_cap = total_supply_adjusted * usd_price_per_token
+        else:
+            # Use the cached values
+            usd_price_per_token = Decimal(price_str)
+            market_cap = Decimal(cap_str)
+
+        # 3) Determine the current phase (Initial, Growth, Established)
+        current_phase = get_current_phase(market_cap)
+
+        # 4) Get dynamic percentages for that phase
+        dynamic_percentages = PHASE_TIER_PERCENTAGES[current_phase]
+
+        # 5) Sort them in descending order 
+        #    so we check highest required % (Elite) first, etc.
         sorted_tiers = sorted(
-            SUBSCRIPTION_PLANS.items(),
-            key=lambda x: x[1]['percentage'],
+            dynamic_percentages.items(),
+            key=lambda x: x[1],
             reverse=True
         )
-        
-        for tier, plan in sorted_tiers:
-            if percentage_held >= plan['percentage']:
-                return tier, True
+
+        # 6) Compare user’s actual holding % 
+        for tier_name, required_pct in sorted_tiers:
+            if percentage_held >= required_pct:
+                return tier_name, True
+
         return 'None', False
+
     except Exception as e:
         logging.error(f"Error verifying tier for user {user_address}: {str(e)}")
         return 'None', False
-
-
 
 def get_web3_instance():
     providers = [
@@ -1041,6 +1099,33 @@ def verify_user_holdings(checksum_address):
 
 def is_whitelisted(address):
     return address.lower() in (addr.lower() for addr in WHITELISTED_ADDRESSES)
+
+def get_token_price_from_moralis() -> Decimal:
+    params = {
+        "chain": "base",
+        "address": "0x0464a6939B0e341Ed502B2c4a6Dc1e60884762DF"
+    }
+
+    try:
+        result = evm_api.token.get_token_price(
+            api_key=MORALIS_API_KEY,
+            params=params,
+        )
+        # The Moralis response has "usdPrice"
+        usd_price_str = str(result["usdPrice"])
+        return Decimal(usd_price_str)
+    except Exception as e:
+        logging.error(f"Error fetching price from Moralis: {e}")
+        # fallback to 0 or raise
+        return Decimal(0)
+
+def get_current_phase(market_cap: Decimal) -> str:
+    if market_cap < Decimal('1000000'):  # Under $1M
+        return 'Initial'
+    elif market_cap <= Decimal('5000000'):  # $1M - $5M
+        return 'Growth'
+    else:
+        return 'Established'
 
 
 async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimizer):
@@ -1363,6 +1448,25 @@ async def get_or_initialize_user_data(
     )
     return images_left, videos_left, tier_status
 
+async def update_moralis_price_job():
+    try:
+        usd_price_per_token = get_token_price_from_moralis()  # calls Moralis
+        contract = get_token_contract()
+        total_supply = contract.functions.totalSupply().call()
+        token_decimals = contract.functions.decimals().call()
+        total_supply_adjusted = Decimal(total_supply) / Decimal(10 ** token_decimals)
+
+        market_cap = total_supply_adjusted * usd_price_per_token
+
+        await app.redis_client.set("moralis_usd_price", str(usd_price_per_token))
+        await app.redis_client.set("moralis_market_cap", str(market_cap))
+        await app.redis_client.set("moralis_last_updated", str(datetime.now().timestamp()))
+        
+        logging.info(f"[update_moralis_price_job] Updated price = {usd_price_per_token}, market cap = {market_cap}")
+    except Exception as e:
+        logging.error(f"[update_moralis_price_job] Error: {e}")
+
+
 async def reset_monthly_counts():
     logging.info("Starting monthly image and video count reset")
     async with app.redis_client.pipeline(transaction=True) as pipe:
@@ -1422,11 +1526,12 @@ async def reset_monthly_counts():
     
     logging.info("Monthly image and video count reset completed")
 
+
+
 # Set up the scheduler
 scheduler = AsyncIOScheduler()
 scheduler.add_job(reset_monthly_counts, CronTrigger(day=1, hour=0, minute=0))
-
-
+scheduler.add_job(update_moralis_price_job, CronTrigger(hour='*/6'))
 
 async def create_redis_client():
     return Redis(
