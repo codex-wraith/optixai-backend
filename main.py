@@ -1194,7 +1194,7 @@ async def run_prediction(prediction_id, prompt, first_frame_image, prompt_optimi
 
         # Create prediction using async method
         replicate_prediction = await replicate.predictions.async_create(
-            model="minimax/video-01",
+            model="minimax/video-01-live",
             input=input_params
         )
 
