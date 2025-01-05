@@ -50,7 +50,7 @@ TRIAL_IMAGE_COUNT = 50
 TRIAL_VIDEO_COUNT = 25 
 predictions = {}
 WHITELISTED_ADDRESSES = [
-    "0xDed1c6E87fB55Db94eA9D959cB2Ba06AE60eAd47",  
+    "0xe3dCD878B779C959A68fE982369E4c60c7503c38",  
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0xB48B371E4C6Af3ec298AdF6Dd32dec80a3Bffa09",
@@ -192,8 +192,8 @@ async def get_description():
         return await handle_options_request()
 
     description = (
-        "Connect your wallet to access OptixAI's advanced image and video generation. "
-        "Create stunning visuals with our AI tools, and unlock video generation to bring your creations to life."
+        "Ready to hack reality? Connect your wallet and let CIPHER unlock OptixAI's insane generation capabilities. "
+        "From basic bitch to cinema-grade visuals - time to break the matrix."
     )
     return jsonify({'description': description})
 
