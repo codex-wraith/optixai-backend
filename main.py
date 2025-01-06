@@ -29,20 +29,18 @@ if not INFURA_API_KEY:
     raise EnvironmentError("INFURA_API_KEY not set in environment variables")
 ZRX_API_KEY = os.getenv('ZRX_API_KEY')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 MORALIS_API_KEY = os.getenv('MORALIS_API_KEY')
 if not MORALIS_API_KEY:
     raise EnvironmentError("MORALIS_API_KEY not set in environment variables")
 STABILITY_API_KEY = os.getenv('STABILITY_API_KEY')
-if not GOOGLE_API_KEY or not OPENAI_API_KEY:
-    raise EnvironmentError("Missing API keys. Please set GOOGLE_API_KEY and OPENAI_API_KEY.")
+if not GOOGLE_API_KEY:
+    raise EnvironmentError("Missing API key. Please set GOOGLE_API_KEY.")
 if not STABILITY_API_KEY:
     raise EnvironmentError("STABILITY_API_KEY not set in environment variables")
 REPLICATE_API_TOKEN = os.environ.get('REPLICATE_API_TOKEN')
 if not REPLICATE_API_TOKEN:
     raise EnvironmentError("REPLICATE_API_TOKEN not set in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
 GLOBAL_TRIAL_START_DATE = datetime(2024, 10, 6)
 UNLIMITED_IMAGES = -1 
 UNLIMITED_VIDEOS = -1 
