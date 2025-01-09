@@ -1533,9 +1533,9 @@ scheduler.add_job(update_moralis_price_job, CronTrigger(hour='*/6'))
 
 async def create_redis_client():
     return Redis(
-        host='redis-12238.c256.us-east-1-2.ec2.redns.redis-cloud.com',  
-        port=12238,         
-        password='hWx8bFBaayvlaPcHThZKsgR9XZhKgdoR',              
+        host='redis-17249.c82.us-east-1-2.ec2.redns.redis-cloud.com',  
+        port=17249,         
+        password='nqTqbPPywvCArttR1Lk6CipTVqENRHWk',              
         decode_responses=True  
     )
 
