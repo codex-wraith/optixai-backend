@@ -190,8 +190,8 @@ async def get_description():
         return await handle_options_request()
 
     description = (
-        "Ready to hack reality? Connect your wallet and let CIPHER unlock OptixAI's insane generation capabilities. "
-        "From basic bitch to cinema-grade visuals - time to break the matrix."
+        "Meet CipherAI, OptixAI's advanced AI architect. Connect your wallet to access a neural network that transforms imagination into stunning reality."
+        "From rapid concepts to cinematic masterpieces - your creative potential, amplified."
     )
     return jsonify({'description': description})
 
