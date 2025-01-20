@@ -103,10 +103,6 @@ cors(app,
      expose_headers=['Content-Type', 'User-Address'],
      allow_credentials=True)
 
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-if not TELEGRAM_BOT_TOKEN:
-    raise EnvironmentError("TELEGRAM_BOT_TOKEN not set in environment variables")
-
 @app.route('/price', methods=['GET'])
 async def get_price():
     # Extract parameters from the request
@@ -271,9 +267,6 @@ async def check_whitelist():
 @app.route('/image-ai')
 async def proxy_image():
     file_id = request.args.get('id')
-    telegram = request.args.get('telegram') == 'true'
-    chat_id = request.args.get('chat_id')
-
     if not file_id:
         return await make_response('Image ID is required', 400)
 
@@ -289,35 +282,14 @@ async def proxy_image():
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
-        if telegram and chat_id:
-            # Use the validated token from environment
-            telegram_url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto'
-            
-            async with aiohttp.ClientSession() as session:
-                form_data = aiohttp.FormData()
-                form_data.add_field('chat_id', chat_id)
-                form_data.add_field('photo', 
-                    image_data,
-                    filename='optixai_image.png',
-                    content_type='image/png'
-                )
-                
-                async with session.post(telegram_url, data=form_data) as response:
-                    if response.status != 200:
-                        error_data = await response.json()
-                        current_app.logger.error(f"Telegram API error: {error_data}")
-                        return await make_response('Failed to send image to Telegram', 500)
-                    
-                    return await make_response(jsonify({'success': True}))
-        else:
-            # Regular download handling
-            await app.redis_client.expire(f"image_{file_id}", 3600)
-            
-            proxy_response = await make_response(image_data)
-            proxy_response.headers['Content-Type'] = 'image/png'
-            proxy_response.headers['Access-Control-Allow-Origin'] = '*'
-            return proxy_response
-
+        # Don't delete the file immediately, set a longer expiration in Redis instead
+        await app.redis_client.expire(f"image_{file_id}", 3600)  # Expire after 1 hour
+        
+        proxy_response = await make_response(image_data)
+        proxy_response.headers['Content-Type'] = 'image/png'
+        proxy_response.headers['Content-Disposition'] = 'attachment; filename="optixai_image.png"'
+        proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+        return proxy_response
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
         return await make_response(f'Error serving image: {str(e)}', 500)
@@ -326,9 +298,6 @@ async def proxy_image():
 @app.route('/video-ai')
 async def proxy_video():
     prediction_id = request.args.get('id')
-    telegram = request.args.get('telegram') == 'true'
-    chat_id = request.args.get('chat_id')
-
     if not prediction_id:
         return await make_response('Video ID is required', 400)
 
@@ -337,46 +306,23 @@ async def proxy_video():
         return await make_response('Video not found', 404)
 
     try:
+        # Get the original video URL
         video_url = prediction['output']
         
-        if telegram and chat_id:
-            async with aiohttp.ClientSession() as session:
-                # Download video first
-                async with session.get(video_url) as response:
-                    if response.status != 200:
-                        return await make_response('Failed to fetch video', 500)
-                    video_data = await response.read()
+        # Download the video
+        async with aiohttp.ClientSession() as session:
+            async with session.get(video_url) as response:
+                if response.status != 200:
+                    return await make_response('Failed to fetch video', 500)
                 
-                # Use the validated token from environment
-                telegram_url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo'
-                
-                form_data = aiohttp.FormData()
-                form_data.add_field('chat_id', chat_id)
-                form_data.add_field('video', 
-                    video_data,
-                    filename='optixai_video.mp4',
-                    content_type='video/mp4'
-                )
-                
-                async with session.post(telegram_url, data=form_data) as telegram_response:
-                    if telegram_response.status != 200:
-                        error_data = await telegram_response.json()
-                        current_app.logger.error(f"Telegram API error: {error_data}")
-                        return await make_response('Failed to send video to Telegram', 500)
-                    
-                    return await make_response(jsonify({'success': True}))
-        else:
-            # Regular download handling
-            async with aiohttp.ClientSession() as session:
-                async with session.get(video_url) as response:
-                    if response.status != 200:
-                        return await make_response('Failed to fetch video', 500)
-                    video_data = await response.read()
+                video_data = await response.read()
 
-            proxy_response = await make_response(video_data)
-            proxy_response.headers['Content-Type'] = 'video/mp4'
-            proxy_response.headers['Access-Control-Allow-Origin'] = '*'
-            return proxy_response
+        # Create response with proper headers
+        proxy_response = await make_response(video_data)
+        proxy_response.headers['Content-Type'] = 'video/mp4'
+        proxy_response.headers['Content-Disposition'] = 'attachment; filename="optixai_video.mp4"'
+        proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+        return proxy_response
 
     except Exception as e:
         current_app.logger.error(f"Error serving video: {str(e)}")
