@@ -296,11 +296,15 @@ async def proxy_image():
 
     try:
         if is_telegram and chat_id:
-            # For Telegram Mini App, send directly through bot
+            # Generate timestamp for consistent naming with frontend
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f'OPTIXAI_IMAGE_{timestamp}.png'
+            
             await bot.send_photo(
                 chat_id=chat_id,
                 photo=open(file_path, 'rb'),
-                filename=f'optixai_image_{file_id}.png'
+                caption=f'Generated with OptixAI\nFilename: {filename}',
+                has_spoiler=False
             )
             return jsonify({'success': True})
         else:
@@ -349,6 +353,10 @@ async def proxy_video():
                 video_data = await response.read()
 
         if is_telegram and chat_id:
+            # Generate timestamp for consistent naming with frontend
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f'OPTIXAI_VIDEO_{timestamp}.mp4'
+            
             # For Telegram, save to temp file and send through bot
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
                 temp_file.write(video_data)
@@ -357,7 +365,9 @@ async def proxy_video():
             await bot.send_video(
                 chat_id=chat_id,
                 video=open(temp_path, 'rb'),
-                filename=f'optixai_video_{prediction_id}.mp4'
+                caption=f'Generated with OptixAI\nFilename: {filename}',
+                has_spoiler=False,
+                supports_streaming=True
             )
             os.unlink(temp_path)  # Clean up temp file
             return jsonify({'success': True})
