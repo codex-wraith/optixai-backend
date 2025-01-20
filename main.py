@@ -274,21 +274,20 @@ async def proxy_image():
     if not file_path:
         return await make_response('Image not found', 404)
 
-    if not os.path.exists(file_path):
-        await app.redis_client.delete(f"image_{file_id}")
-        return await make_response('Image file not found', 404)
-
     try:
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
-        # Don't delete the file immediately, set a longer expiration in Redis instead
-        await app.redis_client.expire(f"image_{file_id}", 3600)  # Expire after 1 hour
+        # Generate a default filename if none provided
+        filename = f"optixai_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         
         proxy_response = await make_response(image_data)
-        proxy_response.headers['Content-Type'] = 'image/png'
-        proxy_response.headers['Content-Disposition'] = 'attachment; filename="optixai_image.png"'
-        proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+        proxy_response.headers.update({
+            'Content-Type': 'image/png',
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache'
+        })
         return proxy_response
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
@@ -306,10 +305,8 @@ async def proxy_video():
         return await make_response('Video not found', 404)
 
     try:
-        # Get the original video URL
         video_url = prediction['output']
         
-        # Download the video
         async with aiohttp.ClientSession() as session:
             async with session.get(video_url) as response:
                 if response.status != 200:
@@ -317,11 +314,16 @@ async def proxy_video():
                 
                 video_data = await response.read()
 
-        # Create response with proper headers
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"optixai_video_{timestamp}.mp4"
+        
         proxy_response = await make_response(video_data)
-        proxy_response.headers['Content-Type'] = 'video/mp4'
-        proxy_response.headers['Content-Disposition'] = 'attachment; filename="optixai_video.mp4"'
-        proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+        proxy_response.headers.update({
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache'  # Prevent caching issues
+        })
         return proxy_response
 
     except Exception as e:
