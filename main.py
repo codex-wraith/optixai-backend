@@ -278,13 +278,10 @@ async def proxy_image():
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
-        # Generate a default filename if none provided
-        filename = f"optixai_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        
         proxy_response = await make_response(image_data)
         proxy_response.headers.update({
             'Content-Type': 'image/png',
-            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Disposition': 'attachment; filename="optixai_image.png"',
             'Access-Control-Allow-Origin': '*',
             'Cache-Control': 'no-cache'
         })
