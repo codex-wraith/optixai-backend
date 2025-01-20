@@ -23,6 +23,8 @@ import os
 import asyncio
 import logging
 import uuid
+from telegram import Bot
+import json
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 INFURA_API_KEY = os.getenv('INFURA_API_KEY')
 if not INFURA_API_KEY:
@@ -102,6 +104,13 @@ cors(app,
      allow_headers=['Content-Type', 'User-Address'],
      expose_headers=['Content-Type', 'User-Address'],
      allow_credentials=True)
+
+# Add your Telegram bot token to environment variables
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+if not TELEGRAM_BOT_TOKEN:
+    raise EnvironmentError("TELEGRAM_BOT_TOKEN not set in environment variables")
+
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
 @app.route('/price', methods=['GET'])
 async def get_price():
@@ -267,8 +276,15 @@ async def check_whitelist():
 @app.route('/image-ai')
 async def proxy_image():
     file_id = request.args.get('id')
+    is_telegram = request.args.get('telegram') == 'true'
+    chat_id = request.args.get('chat_id')
+    
     if not file_id:
         return await make_response('Image ID is required', 400)
+
+    if is_telegram:
+        if not chat_id:
+            return await make_response('Chat ID required for Telegram', 400)
 
     file_path = await app.redis_client.get(f"image_{file_id}")
     if not file_path:
@@ -279,16 +295,25 @@ async def proxy_image():
         return await make_response('Image file not found', 404)
 
     try:
-        async with aiofiles.open(file_path, 'rb') as file:
-            image_data = await file.read()
-        
-        # Don't delete the file immediately, set a longer expiration in Redis instead
-        await app.redis_client.expire(f"image_{file_id}", 3600)  # Expire after 1 hour
-        
-        proxy_response = await make_response(image_data)
-        proxy_response.headers['Content-Type'] = 'image/png'
-        proxy_response.headers['Access-Control-Allow-Origin'] = '*'  # Or specify a single origin
-        return proxy_response
+        if is_telegram and chat_id:
+            # For Telegram Mini App, send directly through bot
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=open(file_path, 'rb'),
+                filename=f'optixai_image_{file_id}.png'
+            )
+            return jsonify({'success': True})
+        else:
+            # For web browser, serve file normally
+            async with aiofiles.open(file_path, 'rb') as file:
+                image_data = await file.read()
+            
+            await app.redis_client.expire(f"image_{file_id}", 3600)
+            
+            proxy_response = await make_response(image_data)
+            proxy_response.headers['Content-Type'] = 'image/png'
+            proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+            return proxy_response
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
         return await make_response(f'Error serving image: {str(e)}', 500)
@@ -297,8 +322,15 @@ async def proxy_image():
 @app.route('/video-ai')
 async def proxy_video():
     prediction_id = request.args.get('id')
+    is_telegram = request.args.get('telegram') == 'true'
+    chat_id = request.args.get('chat_id')
+    
     if not prediction_id:
         return await make_response('Video ID is required', 400)
+
+    if is_telegram:
+        if not chat_id:
+            return await make_response('Chat ID required for Telegram', 400)
 
     prediction = predictions.get(prediction_id)
     if not prediction or 'output' not in prediction:
@@ -316,11 +348,25 @@ async def proxy_video():
                 
                 video_data = await response.read()
 
-        # Create response with proper headers
-        proxy_response = await make_response(video_data)
-        proxy_response.headers['Content-Type'] = 'video/mp4'
-        proxy_response.headers['Access-Control-Allow-Origin'] = '*'
-        return proxy_response
+        if is_telegram and chat_id:
+            # For Telegram, save to temp file and send through bot
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                temp_file.write(video_data)
+                temp_path = temp_file.name
+
+            await bot.send_video(
+                chat_id=chat_id,
+                video=open(temp_path, 'rb'),
+                filename=f'optixai_video_{prediction_id}.mp4'
+            )
+            os.unlink(temp_path)  # Clean up temp file
+            return jsonify({'success': True})
+        else:
+            # For web browser, serve normally
+            proxy_response = await make_response(video_data)
+            proxy_response.headers['Content-Type'] = 'video/mp4'
+            proxy_response.headers['Access-Control-Allow-Origin'] = '*'
+            return proxy_response
 
     except Exception as e:
         current_app.logger.error(f"Error serving video: {str(e)}")
@@ -1544,6 +1590,8 @@ async def start_app():
     app.redis_client = await create_redis_client()
     scheduler.start()
     # Here you can add any other initialization you need
+
+
 
 async def main():
     await start_app()
