@@ -275,40 +275,56 @@ async def check_whitelist():
 
 @app.route('/image-ai')
 async def proxy_image():
-    file_id = request.args.get('id')
+    # For Telegram requests
     is_telegram = request.args.get('telegram') == 'true'
     chat_id = request.args.get('chat_id')
     
-    if not file_id:
-        return await make_response('Image ID is required', 400)
-
-    if is_telegram:
-        if not chat_id:
-            return await make_response('Chat ID required for Telegram', 400)
-
-    file_path = await app.redis_client.get(f"image_{file_id}")
-    if not file_path:
-        return await make_response('Image not found', 404)
-
-    if not os.path.exists(file_path):
-        await app.redis_client.delete(f"image_{file_id}")
-        return await make_response('Image file not found', 404)
+    # Get file ID (used in browser downloads)
+    file_id = request.args.get('id')
 
     try:
         if is_telegram and chat_id:
-            # Generate timestamp for consistent naming with frontend
+            # For Telegram, we expect the image URL directly
+            image_url = request.args.get('url')
+            if not image_url:
+                return await make_response('Image URL is required for Telegram', 400)
+                
+            # Download image from URL
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url) as response:
+                    if response.status != 200:
+                        return await make_response('Failed to fetch image', 500)
+                    image_data = await response.read()
+            
+            # Generate filename and send via Telegram
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f'OPTIXAI_IMAGE_{timestamp}.png'
             
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                temp_file.write(image_data)
+                temp_path = temp_file.name
+
             await bot.send_photo(
                 chat_id=chat_id,
-                photo=open(file_path, 'rb'),
+                photo=open(temp_path, 'rb'),
                 caption=f'Generated with OptixAI\nFilename: {filename}',
                 has_spoiler=False
             )
+            os.unlink(temp_path)
             return jsonify({'success': True})
         else:
-            # For web browser, serve file normally
+            # Original browser download logic
+            if not file_id:
+                return await make_response('Image ID is required', 400)
+
+            file_path = await app.redis_client.get(f"image_{file_id}")
+            if not file_path:
+                return await make_response('Image not found', 404)
+
+            if not os.path.exists(file_path):
+                await app.redis_client.delete(f"image_{file_id}")
+                return await make_response('Image file not found', 404)
+
             async with aiofiles.open(file_path, 'rb') as file:
                 image_data = await file.read()
             
@@ -318,46 +334,38 @@ async def proxy_image():
             proxy_response.headers['Content-Type'] = 'image/png'
             proxy_response.headers['Access-Control-Allow-Origin'] = '*'
             return proxy_response
+
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
         return await make_response(f'Error serving image: {str(e)}', 500)
 
-
 @app.route('/video-ai')
 async def proxy_video():
-    prediction_id = request.args.get('id')
+    # For Telegram requests
     is_telegram = request.args.get('telegram') == 'true'
     chat_id = request.args.get('chat_id')
     
-    if not prediction_id:
-        return await make_response('Video ID is required', 400)
-
-    if is_telegram:
-        if not chat_id:
-            return await make_response('Chat ID required for Telegram', 400)
-
-    prediction = predictions.get(prediction_id)
-    if not prediction or 'output' not in prediction:
-        return await make_response('Video not found', 404)
-
+    # Get prediction ID (used in browser downloads)
+    prediction_id = request.args.get('id')
+    
     try:
-        # Get the original video URL
-        video_url = prediction['output']
-        
-        # Download the video
-        async with aiohttp.ClientSession() as session:
-            async with session.get(video_url) as response:
-                if response.status != 200:
-                    return await make_response('Failed to fetch video', 500)
-                
-                video_data = await response.read()
-
         if is_telegram and chat_id:
-            # Generate timestamp for consistent naming with frontend
+            # For Telegram, we expect the video URL directly
+            video_url = request.args.get('url')
+            if not video_url:
+                return await make_response('Video URL is required for Telegram', 400)
+                
+            # Download video from URL
+            async with aiohttp.ClientSession() as session:
+                async with session.get(video_url) as response:
+                    if response.status != 200:
+                        return await make_response('Failed to fetch video', 500)
+                    video_data = await response.read()
+
+            # Generate filename and send via Telegram
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f'OPTIXAI_VIDEO_{timestamp}.mp4'
             
-            # For Telegram, save to temp file and send through bot
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
                 temp_file.write(video_data)
                 temp_path = temp_file.name
@@ -369,10 +377,27 @@ async def proxy_video():
                 has_spoiler=False,
                 supports_streaming=True
             )
-            os.unlink(temp_path)  # Clean up temp file
+            os.unlink(temp_path)
             return jsonify({'success': True})
         else:
-            # For web browser, serve normally
+            # Original browser download logic using predictions
+            if not prediction_id:
+                return await make_response('Video ID is required', 400)
+
+            prediction = predictions.get(prediction_id)
+            if not prediction or 'output' not in prediction:
+                return await make_response('Video not found', 404)
+
+            # Get the original video URL from prediction
+            video_url = prediction['output']
+            
+            # Download and serve the video
+            async with aiohttp.ClientSession() as session:
+                async with session.get(video_url) as response:
+                    if response.status != 200:
+                        return await make_response('Failed to fetch video', 500)
+                    video_data = await response.read()
+
             proxy_response = await make_response(video_data)
             proxy_response.headers['Content-Type'] = 'video/mp4'
             proxy_response.headers['Access-Control-Allow-Origin'] = '*'
