@@ -279,22 +279,20 @@ async def proxy_image():
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
-        # Generate a timestamp-based filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_image_{timestamp}.png"
         
-        # Create response with proper headers for Telegram compatibility
+        # Modified headers specifically for Telegram compatibility
         proxy_response = await make_response(image_data)
         proxy_response.headers.update({
             'Content-Type': 'image/png',
-            # Use quoted-string format for filename to handle special characters
-            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            # Simplified Content-Disposition to ensure Telegram recognizes it
+            'Content-Disposition': 'attachment; filename=' + filename,
             'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            # Add specific header for Telegram
-            'X-Content-Type-Options': 'nosniff'
+            # Removed potentially problematic cache headers
+            'Cache-Control': 'private',
+            # Added content length header
+            'Content-Length': str(len(image_data))
         })
         return proxy_response
     except Exception as e:
@@ -322,22 +320,20 @@ async def proxy_video():
                 
                 video_data = await response.read()
 
-        # Generate timestamp-based filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_video_{timestamp}.mp4"
         
-        # Create response with proper headers for Telegram compatibility
+        # Modified headers specifically for Telegram compatibility
         proxy_response = await make_response(video_data)
         proxy_response.headers.update({
             'Content-Type': 'video/mp4',
-            # Use quoted-string format for filename to handle special characters
-            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            # Simplified Content-Disposition to ensure Telegram recognizes it
+            'Content-Disposition': 'attachment; filename=' + filename,
             'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            # Add specific header for Telegram
-            'X-Content-Type-Options': 'nosniff'
+            # Removed potentially problematic cache headers
+            'Cache-Control': 'private',
+            # Added content length header
+            'Content-Length': str(len(video_data))
         })
         return proxy_response
 
