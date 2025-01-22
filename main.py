@@ -55,41 +55,41 @@ WHITELISTED_ADDRESSES = [
     "0xbadCAEf66B38a81e9Af1B126a9a419611b064259"
 ]
 SUBSCRIPTION_PLANS = {
-    'Optix Core': {
+    'Core': {
         'images_per_month': 100,
         'videos_per_month': 0  # No video access for Tier 1
     },
-    'Optix Fusion': {
+    'Fusion': {
         'images_per_month': 500,
         'videos_per_month': 250
     },
-    'Optix Pro': {
+    'Pro': {
         'images_per_month': 1000,
         'videos_per_month': 500
     },
-    'Optix Elite': {
+    'Elite': {
         'images_per_month': 2000,
         'videos_per_month': 500
     }
 }
 PHASE_TIER_PERCENTAGES = {
     'Initial': {  # Under $1M
-        'Optix Core': Decimal('2.5'),
-        'Optix Fusion': Decimal('3.0'),
-        'Optix Pro':   Decimal('3.5'),
-        'Optix Elite': Decimal('4.0')
+        'Core': Decimal('2.5'),
+        'Fusion': Decimal('3.0'),
+        'Pro':   Decimal('3.5'),
+        'Elite': Decimal('4.0')
     },
     'Growth': {   # $1M - $5M
-        'Optix Core': Decimal('1.25'),
-        'Optix Fusion': Decimal('1.5'),
-        'Optix Pro':   Decimal('1.75'),
-        'Optix Elite': Decimal('2.0')
+        'Core': Decimal('1.25'),
+        'Fusion': Decimal('1.5'),
+        'Pro':   Decimal('1.75'),
+        'Elite': Decimal('2.0')
     },
     'Established': {  # Above $5M
-        'Optix Core': Decimal('0.5'),
-        'Optix Fusion': Decimal('0.75'),
-        'Optix Pro':   Decimal('1.0'),
-        'Optix Elite': Decimal('1.25')
+        'Core': Decimal('0.5'),
+        'Fusion': Decimal('0.75'),
+        'Pro':   Decimal('1.0'),
+        'Elite': Decimal('1.25')
     }
 }
 app = Quart(__name__)
@@ -229,11 +229,11 @@ async def tiers_info():
                 'imagesPerMonth': plan['images_per_month'],
                 'videosPerMonth': plan['videos_per_month'],
                 'hasVideoAccess': plan['videos_per_month'] > 0,
-                'isUltraTier': tier == 'Optix Elite',
+                'isUltraTier': tier == 'Elite',
                 'features': {
                     'imageGeneration': True,
                     'videoGeneration': plan['videos_per_month'] > 0,
-                    'ultraQuality': tier == 'Optix Elite'
+                    'ultraQuality': tier == 'Elite'
                 }
             }
         
@@ -241,7 +241,7 @@ async def tiers_info():
             'success': True,
             'totalSupply': float(total_supply_adjusted),
             'tiers': tiers_info,
-            'videoTierMinimum': 'Optix Fusion',  # Indicates minimum tier for video access
+            'videoTierMinimum': 'Fusion',  # Indicates minimum tier for video access
             'currentPhase': current_phase  # Optionally include phase info
         })
     except Exception as e:
@@ -478,7 +478,7 @@ async def user_session():
                 videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
 
     # Update available upgrades logic
-    all_tiers = ['Optix Core', 'Optix Fusion', 'Optix Pro', 'Optix Elite']
+    all_tiers = ['Core', 'Fusion', 'Pro', 'Elite']
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
     else:
@@ -486,13 +486,13 @@ async def user_session():
         available_upgrades = [tier for tier in all_tiers if tier not in current_tiers]
 
     # Add Ultra access flag
-    has_ultra_access = tier_status == 'Optix Elite' or is_whitelisted(user_address)
+    has_ultra_access = tier_status == 'Elite' or is_whitelisted(user_address)
 
     # Determine video access based on tier
     has_video_access = (
         is_whitelisted(user_address) or
         free_trial_active or
-        tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite']
+        tier_status in ['Fusion', 'Pro', 'Elite']
     )
 
     # Get video limit based on tier
@@ -562,7 +562,7 @@ async def generate_video():
 
             # Check if user has video access based on tier
             has_video_access = (
-                tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite'] or 
+                tier_status in ['Fusion', 'Pro', 'Elite'] or 
                 free_trial_active
             )
 
@@ -759,32 +759,32 @@ async def generate_content():
             # Whitelisted users can use any tier
             if data.get('tier4Prompt'):
                 prompt_used = data['tier4Prompt']
-                tier_used = 'Optix Elite'
+                tier_used = 'Elite'
                 model_version = "black-forest-labs/flux-1.1-pro-ultra"
             elif data.get('tier3Prompt'):
                 prompt_used = data['tier3Prompt']
-                tier_used = 'Optix Pro'
+                tier_used = 'Pro'
             elif data.get('tier2Prompt'):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Optix Fusion'
+                tier_used = 'Fusion'
             elif data.get('tier1Prompt'):
                 prompt_used = data['tier1Prompt']
-                tier_used = 'Optix Core'
+                tier_used = 'Core'
         else:
             # Non-whitelisted users follow regular tier logic
-            if data.get('tier4Prompt') and (tier_status == 'Optix Elite' or free_trial_active):
+            if data.get('tier4Prompt') and (tier_status == 'Elite' or free_trial_active):
                 prompt_used = data['tier4Prompt']
-                tier_used = 'Optix Elite'
+                tier_used = 'Elite'
                 model_version = "black-forest-labs/flux-1.1-pro-ultra"
-            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Optix Pro', 'Optix Elite']):
+            elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Pro', 'Elite']):
                 prompt_used = data['tier3Prompt']
-                tier_used = 'Optix Pro'
-            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite']):
+                tier_used = 'Pro'
+            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Fusion', 'Pro', 'Elite']):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Optix Fusion'
-            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Optix Core', 'Optix Fusion', 'Optix Pro', 'Optix Elite']):
+                tier_used = 'Fusion'
+            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Core', 'Fusion', 'Pro', 'Elite']):
                 prompt_used = data['tier1Prompt']
-                tier_used = 'Optix Core'
+                tier_used = 'Core'
 
         if not prompt_used:
             app.logger.error(f"No valid prompt - User: {user_address}, Prompts received: {[k for k in data.keys() if 'Prompt' in k]}")
@@ -793,7 +793,7 @@ async def generate_content():
         logging.info(f"Original prompt ({tier_used}): {prompt_used}")
 
         prompts = {
-            'Optix Core': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
+            'Core': f"""Refine this prompt for a pixel art style image with cartoon elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Emphasizes classic pixel art aesthetics and charm
             - Incorporates playful cartoon-style elements
@@ -805,7 +805,7 @@ async def generate_content():
             - Realistic or photographic elements
             Present the output as one comprehensive, descriptive sentence that naturally blends pixel art and cartoon elements.""",
 
-            'Optix Fusion': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
+            'Fusion': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Specifies elements to be rendered in pixel art style
             - Describes photorealistic details
@@ -817,7 +817,7 @@ async def generate_content():
             - References to UI elements or non-artistic components
             Present the output as one comprehensive, descriptive sentence without separating pixel and realistic elements.""",
 
-            'Optix Pro': f"""Enhance this prompt for a photorealistic image with subtle artistic touches: '{prompt_used}'
+            'Pro': f"""Enhance this prompt for a photorealistic image with subtle artistic touches: '{prompt_used}'
             Craft a single, detailed prompt that includes:
             - Specific lighting details (direction, intensity, color)
             - Subtle artistic textures that maintain realism
@@ -828,7 +828,7 @@ async def generate_content():
             - Avoid mentioning non-photorealistic or obvious digital effects
             Output a single, comprehensive sentence that guides the AI to create a highly detailed, photorealistic image with artistic nuances.""",
 
-            'Optix Elite': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
+            'Elite': f"""Enhance this prompt for an ultra-realistic image with exceptional detail and artistic mastery: '{prompt_used}'
             Craft a single, detailed prompt that includes:
             - Photorealistic lighting and atmospheric conditions
             - Intricate textures and surface details
@@ -1424,7 +1424,7 @@ async def get_or_initialize_user_data(
     # Handle video decrement
     if decrement_videos:
         has_video_access = (
-            tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite'] or
+            tier_status in ['Fusion', 'Pro', 'Elite'] or
             free_trial_active
         )
         if has_video_access:
@@ -1440,7 +1440,7 @@ async def get_or_initialize_user_data(
             app.logger.warning(
                 f"User {user_address} attempted to use video generation without proper access"
             )
-            raise ValueError("Video generation requires Optix Fusion tier or higher subscription")
+            raise ValueError("Video generation requires Fusion tier or higher subscription")
 
     app.logger.info(
         f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}"
