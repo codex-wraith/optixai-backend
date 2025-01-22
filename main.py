@@ -52,15 +52,14 @@ WHITELISTED_ADDRESSES = [
     "0x780AfC062519614C83f1DbF9B320345772139e1e",
     "0xf52AfD0fF44aCfF80e9b3e54fe577E25af3f396E",
     "0x0faEC79d4cD401ece4E32D7C9E85795A3D0be4B6",
-    "0xbadCAEf66B38a81e9Af1B126a9a419611b064259",
-    "0xB48B371E4C6Af3ec298AdF6Dd32dec80a3Bffa09"
+    "0xbadCAEf66B38a81e9Af1B126a9a419611b064259"
 ]
 SUBSCRIPTION_PLANS = {
     'Optix Core': {
         'images_per_month': 100,
         'videos_per_month': 0  # No video access for Tier 1
     },
-    'Optix Blend': {
+    'Optix Fusion': {
         'images_per_month': 500,
         'videos_per_month': 250
     },
@@ -76,19 +75,19 @@ SUBSCRIPTION_PLANS = {
 PHASE_TIER_PERCENTAGES = {
     'Initial': {  # Under $1M
         'Optix Core': Decimal('2.5'),
-        'Optix Blend': Decimal('3.0'),
+        'Optix Fusion': Decimal('3.0'),
         'Optix Pro':   Decimal('3.5'),
         'Optix Elite': Decimal('4.0')
     },
     'Growth': {   # $1M - $5M
         'Optix Core': Decimal('1.25'),
-        'Optix Blend': Decimal('1.5'),
+        'Optix Fusion': Decimal('1.5'),
         'Optix Pro':   Decimal('1.75'),
         'Optix Elite': Decimal('2.0')
     },
     'Established': {  # Above $5M
         'Optix Core': Decimal('0.5'),
-        'Optix Blend': Decimal('0.75'),
+        'Optix Fusion': Decimal('0.75'),
         'Optix Pro':   Decimal('1.0'),
         'Optix Elite': Decimal('1.25')
     }
@@ -242,7 +241,7 @@ async def tiers_info():
             'success': True,
             'totalSupply': float(total_supply_adjusted),
             'tiers': tiers_info,
-            'videoTierMinimum': 'Optix Blend',  # Indicates minimum tier for video access
+            'videoTierMinimum': 'Optix Fusion',  # Indicates minimum tier for video access
             'currentPhase': current_phase  # Optionally include phase info
         })
     except Exception as e:
@@ -479,7 +478,7 @@ async def user_session():
                 videos_left = int(await app.redis_client.get(f"{user_prefix}videos_left") or 0)
 
     # Update available upgrades logic
-    all_tiers = ['Optix Core', 'Optix Blend', 'Optix Pro', 'Optix Elite']
+    all_tiers = ['Optix Core', 'Optix Fusion', 'Optix Pro', 'Optix Elite']
     if tier_status == 'Free Trial':
         available_upgrades = all_tiers
     else:
@@ -493,7 +492,7 @@ async def user_session():
     has_video_access = (
         is_whitelisted(user_address) or
         free_trial_active or
-        tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite']
+        tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite']
     )
 
     # Get video limit based on tier
@@ -563,7 +562,7 @@ async def generate_video():
 
             # Check if user has video access based on tier
             has_video_access = (
-                tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite'] or 
+                tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite'] or 
                 free_trial_active
             )
 
@@ -767,7 +766,7 @@ async def generate_content():
                 tier_used = 'Optix Pro'
             elif data.get('tier2Prompt'):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Optix Blend'
+                tier_used = 'Optix Fusion'
             elif data.get('tier1Prompt'):
                 prompt_used = data['tier1Prompt']
                 tier_used = 'Optix Core'
@@ -780,10 +779,10 @@ async def generate_content():
             elif data.get('tier3Prompt') and (free_trial_active or tier_status in ['Optix Pro', 'Optix Elite']):
                 prompt_used = data['tier3Prompt']
                 tier_used = 'Optix Pro'
-            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite']):
+            elif data.get('tier2Prompt') and (free_trial_active or tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite']):
                 prompt_used = data['tier2Prompt']
-                tier_used = 'Optix Blend'
-            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Optix Core', 'Optix Blend', 'Optix Pro', 'Optix Elite']):
+                tier_used = 'Optix Fusion'
+            elif data.get('tier1Prompt') and (free_trial_active or tier_status in [ 'Optix Core', 'Optix Fusion', 'Optix Pro', 'Optix Elite']):
                 prompt_used = data['tier1Prompt']
                 tier_used = 'Optix Core'
 
@@ -806,7 +805,7 @@ async def generate_content():
             - Realistic or photographic elements
             Present the output as one comprehensive, descriptive sentence that naturally blends pixel art and cartoon elements.""",
 
-            'Optix Blend': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
+            'Optix Fusion': f"""Refine this prompt for an image blending pixel art (40%) with photorealistic (60%) elements: '{prompt_used}'
             Create a single, detailed prompt that:
             - Specifies elements to be rendered in pixel art style
             - Describes photorealistic details
@@ -1425,7 +1424,7 @@ async def get_or_initialize_user_data(
     # Handle video decrement
     if decrement_videos:
         has_video_access = (
-            tier_status in ['Optix Blend', 'Optix Pro', 'Optix Elite'] or
+            tier_status in ['Optix Fusion', 'Optix Pro', 'Optix Elite'] or
             free_trial_active
         )
         if has_video_access:
@@ -1441,7 +1440,7 @@ async def get_or_initialize_user_data(
             app.logger.warning(
                 f"User {user_address} attempted to use video generation without proper access"
             )
-            raise ValueError("Video generation requires Optix Blend tier or higher subscription")
+            raise ValueError("Video generation requires Optix Fusion tier or higher subscription")
 
     app.logger.info(
         f"Final state for {user_address}: images_left={images_left}, videos_left={videos_left}, tier_status={tier_status}"
