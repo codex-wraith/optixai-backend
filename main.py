@@ -279,20 +279,18 @@ async def proxy_image():
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"optixai_image_{timestamp}.png"
-        
-        # Convert image data to base64
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
-        return jsonify({
-            'success': True,
-            'data': f'data:image/png;base64,{image_base64}',
-            'filename': filename
+        proxy_response = await make_response(image_data)
+        proxy_response.headers.update({
+            'Content-Type': 'image/png',
+            'Content-Disposition': 'attachment; filename="optixai_image.png"',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache'
         })
+        return proxy_response
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
         return await make_response(f'Error serving image: {str(e)}', 500)
+
 
 @app.route('/video-ai')
 async def proxy_video():
@@ -317,14 +315,14 @@ async def proxy_video():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_video_{timestamp}.mp4"
         
-        # Convert video data to base64
-        video_base64 = base64.b64encode(video_data).decode('utf-8')
-        
-        return jsonify({
-            'success': True,
-            'data': f'data:video/mp4;base64,{video_base64}',
-            'filename': filename
+        proxy_response = await make_response(video_data)
+        proxy_response.headers.update({
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache'  # Prevent caching issues
         })
+        return proxy_response
 
     except Exception as e:
         current_app.logger.error(f"Error serving video: {str(e)}")
