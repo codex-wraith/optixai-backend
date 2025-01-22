@@ -279,37 +279,20 @@ async def proxy_image():
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
-        # Check if request is from Telegram
-        user_agent = request.headers.get('User-Agent', '').lower()
-        is_telegram = 'telegram' in user_agent
-        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_image_{timestamp}.png"
         
-        proxy_response = await make_response(image_data)
+        # Convert image data to base64
+        image_base64 = base64.b64encode(image_data).decode('utf-8')
         
-        if is_telegram:
-            # For Telegram, send as inline content
-            proxy_response.headers.update({
-                'Content-Type': 'image/png',
-                'Content-Length': str(len(image_data)),
-                'Content-Transfer-Encoding': 'binary',
-                'Accept-Ranges': 'bytes'
-            })
-        else:
-            # For other clients, send as attachment
-            proxy_response.headers.update({
-                'Content-Type': 'image/png',
-                'Content-Disposition': f'attachment; filename="{filename}"',
-                'Content-Length': str(len(image_data)),
-                'Cache-Control': 'private'
-            })
-        
-        return proxy_response
+        return jsonify({
+            'success': True,
+            'data': f'data:image/png;base64,{image_base64}',
+            'filename': filename
+        })
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
         return await make_response(f'Error serving image: {str(e)}', 500)
-
 
 @app.route('/video-ai')
 async def proxy_video():
@@ -331,33 +314,17 @@ async def proxy_video():
                 
                 video_data = await response.read()
 
-        # Check if request is from Telegram
-        user_agent = request.headers.get('User-Agent', '').lower()
-        is_telegram = 'telegram' in user_agent
-        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_video_{timestamp}.mp4"
         
-        proxy_response = await make_response(video_data)
+        # Convert video data to base64
+        video_base64 = base64.b64encode(video_data).decode('utf-8')
         
-        if is_telegram:
-            # For Telegram, send as inline content
-            proxy_response.headers.update({
-                'Content-Type': 'video/mp4',
-                'Content-Length': str(len(video_data)),
-                'Content-Transfer-Encoding': 'binary',
-                'Accept-Ranges': 'bytes'
-            })
-        else:
-            # For other clients, send as attachment
-            proxy_response.headers.update({
-                'Content-Type': 'video/mp4',
-                'Content-Disposition': f'attachment; filename="{filename}"',
-                'Content-Length': str(len(video_data)),
-                'Cache-Control': 'private'
-            })
-        
-        return proxy_response
+        return jsonify({
+            'success': True,
+            'data': f'data:video/mp4;base64,{video_base64}',
+            'filename': filename
+        })
 
     except Exception as e:
         current_app.logger.error(f"Error serving video: {str(e)}")
