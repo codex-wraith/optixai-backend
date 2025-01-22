@@ -279,21 +279,32 @@ async def proxy_image():
         async with aiofiles.open(file_path, 'rb') as file:
             image_data = await file.read()
         
+        # Check if request is from Telegram
+        user_agent = request.headers.get('User-Agent', '').lower()
+        is_telegram = 'telegram' in user_agent
+        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_image_{timestamp}.png"
         
-        # Modified headers specifically for Telegram compatibility
         proxy_response = await make_response(image_data)
-        proxy_response.headers.update({
-            'Content-Type': 'image/png',
-            # Simplified Content-Disposition to ensure Telegram recognizes it
-            'Content-Disposition': 'attachment; filename=' + filename,
-            'Access-Control-Allow-Origin': '*',
-            # Removed potentially problematic cache headers
-            'Cache-Control': 'private',
-            # Added content length header
-            'Content-Length': str(len(image_data))
-        })
+        
+        if is_telegram:
+            # For Telegram, send as inline content
+            proxy_response.headers.update({
+                'Content-Type': 'image/png',
+                'Content-Length': str(len(image_data)),
+                'Content-Transfer-Encoding': 'binary',
+                'Accept-Ranges': 'bytes'
+            })
+        else:
+            # For other clients, send as attachment
+            proxy_response.headers.update({
+                'Content-Type': 'image/png',
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(image_data)),
+                'Cache-Control': 'private'
+            })
+        
         return proxy_response
     except Exception as e:
         current_app.logger.error(f"Error serving image: {str(e)}")
@@ -320,21 +331,32 @@ async def proxy_video():
                 
                 video_data = await response.read()
 
+        # Check if request is from Telegram
+        user_agent = request.headers.get('User-Agent', '').lower()
+        is_telegram = 'telegram' in user_agent
+        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"optixai_video_{timestamp}.mp4"
         
-        # Modified headers specifically for Telegram compatibility
         proxy_response = await make_response(video_data)
-        proxy_response.headers.update({
-            'Content-Type': 'video/mp4',
-            # Simplified Content-Disposition to ensure Telegram recognizes it
-            'Content-Disposition': 'attachment; filename=' + filename,
-            'Access-Control-Allow-Origin': '*',
-            # Removed potentially problematic cache headers
-            'Cache-Control': 'private',
-            # Added content length header
-            'Content-Length': str(len(video_data))
-        })
+        
+        if is_telegram:
+            # For Telegram, send as inline content
+            proxy_response.headers.update({
+                'Content-Type': 'video/mp4',
+                'Content-Length': str(len(video_data)),
+                'Content-Transfer-Encoding': 'binary',
+                'Accept-Ranges': 'bytes'
+            })
+        else:
+            # For other clients, send as attachment
+            proxy_response.headers.update({
+                'Content-Type': 'video/mp4',
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(video_data)),
+                'Cache-Control': 'private'
+            })
+        
         return proxy_response
 
     except Exception as e:
