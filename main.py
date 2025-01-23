@@ -835,9 +835,8 @@ async def generate_content():
             - Intricate textures and surface details
             - Complex compositional elements
             - Advanced depth and perspective
-            - Sophisticated color grading
             Ensure to:
-            - Maintain hyperrealistic quality
+            - Keep the original intent and key elements of the prompt
             - Include cinematic elements
             - Preserve artistic nuances
             Output a single, comprehensive sentence that guides the AI to create an ultra-detailed, masterfully composed image."""
